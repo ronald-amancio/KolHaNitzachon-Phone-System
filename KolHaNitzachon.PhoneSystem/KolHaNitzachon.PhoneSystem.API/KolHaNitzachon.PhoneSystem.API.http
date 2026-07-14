@@ -1,0 +1,6 @@
+@KolHaNitzachon.PhoneSystem.API_HostAddress = http://localhost:5210
+
+GET {{KolHaNitzachon.PhoneSystem.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

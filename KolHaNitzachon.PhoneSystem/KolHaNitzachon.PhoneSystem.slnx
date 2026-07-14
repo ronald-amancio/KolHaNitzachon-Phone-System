@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/frontend/" />
+  <Folder Name="/frontend/admin/" />
+  <Folder Name="/src/">
+    <Project Path="E:/Projects/Other/Twilio Phone System/v2/KolHaNitzachon.PhoneSystem/KolHaNitzachon.PhoneSystem.API/KolHaNitzachon.PhoneSystem.API.csproj" />
+    <Project Path="E:/Projects/Other/Twilio Phone System/v2/KolHaNitzachon.PhoneSystem/KolHaNitzachon.PhoneSystem.Application/KolHaNitzachon.PhoneSystem.Application.csproj" />
+    <Project Path="E:/Projects/Other/Twilio Phone System/v2/KolHaNitzachon.PhoneSystem/KolHaNitzachon.PhoneSystem.Domain/KolHaNitzachon.PhoneSystem.Domain.csproj" />
+    <Project Path="E:/Projects/Other/Twilio Phone System/v2/KolHaNitzachon.PhoneSystem/KolHaNitzachon.PhoneSystem.Infrastructure/KolHaNitzachon.PhoneSystem.Infrastructure.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,74 @@
+# Build folders
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Database
+*.mdf
+*.ldf
+
+# NuGet
+*.nupkg
+packages/
+
+# Publish output
+publish/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug / compiled files
+*.pdb
+*.dll
+*.exe
+
+# Resharper
+_ReSharper*/
+*.DotSettings.user
+
+# IIS Express
+iisexpress/
+
+# Backup files
+*.bak
+
+# Node modules
+node_modules/
+
+# Test / Coverage
+TestResults/
+coverage/
+
+# Generated files
+Generated/
+
+# Uploads
+wwwroot/uploads/
+
+# Environment / Secrets
+.env
+appsettings.Development.json
+
+# Archives
+*.zip
