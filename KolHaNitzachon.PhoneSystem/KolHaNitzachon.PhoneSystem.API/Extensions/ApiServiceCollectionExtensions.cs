@@ -1,6 +1,7 @@
 ﻿namespace KolHaNitzachon.PhoneSystem.API.Extensions
 {
-    public class TestClass
+    public class ApiServiceCollectionExtensions
     {
+
     }
 }
