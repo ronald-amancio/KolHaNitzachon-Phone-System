@@ -10,4 +10,13 @@
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Domain\KolHaNitzachon.PhoneSystem.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Interfaces\Identity\" />
+    <Folder Include="Interfaces\Email\" />
+    <Folder Include="Interfaces\Storage\" />
+    <Folder Include="Interfaces\Voice\" />
+    <Folder Include="Interfaces\Sms\" />
+    <Folder Include="Interfaces\Notifications\" />
+  </ItemGroup>
+
 </Project>
