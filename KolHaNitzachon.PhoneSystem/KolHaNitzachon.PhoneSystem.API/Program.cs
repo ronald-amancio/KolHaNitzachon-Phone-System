@@ -1,3 +1,10 @@
+//using Application.Interfaces.External;
+using Infrastructure.External;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
+using KolHaNitzachon.PhoneSystem.Infrastructure.Payment;
+//using KolHaNitzachon.PhoneSystem.Infrastructure.External;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -6,6 +13,10 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddScoped<IPaymentGatewayService, SolaPaymentGatewayService>();
+
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 
 var app = builder.Build();
 
