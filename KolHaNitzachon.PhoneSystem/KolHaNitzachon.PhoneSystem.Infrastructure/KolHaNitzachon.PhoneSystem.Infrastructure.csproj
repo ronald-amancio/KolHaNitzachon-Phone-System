@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Services\Voice\IVoiceService.cs" />
+    <Compile Remove="SignalWire\SignalWireVoiceService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.28" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.28">
@@ -22,9 +27,21 @@
     <PackageReference Include="Twilio" Version="7.14.9" />
   </ItemGroup>
 
+  <!-- ADD THIS -->
+  <ItemGroup>
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Application\KolHaNitzachon.PhoneSystem.Application.csproj" />
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Domain\KolHaNitzachon.PhoneSystem.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Identity\" />
+    <Folder Include="Azure\" />
+    <Folder Include="Logging\" />
+    <Folder Include="Twilio\" />
   </ItemGroup>
 
 </Project>

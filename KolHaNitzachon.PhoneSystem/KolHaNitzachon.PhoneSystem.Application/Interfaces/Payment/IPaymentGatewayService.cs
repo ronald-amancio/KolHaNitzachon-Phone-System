@@ -1,4 +1,4 @@
-namespace Domain.Services;
+namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
 
 /// <summary>
 /// Payment gateway service interface for SOLA/Cardknox integration

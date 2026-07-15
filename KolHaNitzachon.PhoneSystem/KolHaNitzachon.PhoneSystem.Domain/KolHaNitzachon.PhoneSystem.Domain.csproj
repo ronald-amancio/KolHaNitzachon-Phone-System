@@ -8,7 +8,6 @@
 
   <ItemGroup>
     <Folder Include="Domain\" />
-    <Folder Include="Entities\" />
     <Folder Include="Enumss\" />
     <Folder Include="Constants\" />
     <Folder Include="ValueObjects\" />
