@@ -14,9 +14,12 @@
     <Folder Include="Interfaces\Identity\" />
     <Folder Include="Interfaces\Email\" />
     <Folder Include="Interfaces\Storage\" />
-    <Folder Include="Interfaces\Voice\" />
     <Folder Include="Interfaces\Sms\" />
     <Folder Include="Interfaces\Notifications\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Twilio" Version="7.14.9" />
   </ItemGroup>
 
 </Project>

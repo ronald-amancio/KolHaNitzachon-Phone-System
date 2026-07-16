@@ -14,10 +14,7 @@ public class BlobStorageService : IBlobStorageService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BlobStorageService> _logger;
 
-    public BlobStorageService(
-        IConfiguration configuration,
-        IHttpClientFactory httpClientFactory,
-        ILogger<BlobStorageService> logger)
+    public BlobStorageService(IConfiguration configuration, IHttpClientFactory httpClientFactory, ILogger<BlobStorageService> logger)
     {
         _connectionString = configuration.GetConnectionString("AzureBlobStorage")
             ?? throw new ArgumentNullException("AzureBlobStorage connection string is missing in appsettings.json");
