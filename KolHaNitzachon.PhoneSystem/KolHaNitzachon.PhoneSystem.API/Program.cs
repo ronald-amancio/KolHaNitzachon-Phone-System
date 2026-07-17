@@ -1,15 +1,17 @@
 using Infrastructure.External;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Voice;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Payment;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Persistence;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Repositories;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services;
+using KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services.Voice;
 using KolHaNitzachon.PhoneSystem.Infrastructure.SignalWire;
-using KolHaNitzachon.PhoneSystem.Application.Interfaces.Voice;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,6 +36,8 @@ builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorage>();
 builder.Services.Configure<SignalWireSettings>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.Configure<SignalWireOptions>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.AddScoped<IVoiceService, SignalWireVoiceService>();
+
+builder.Services.AddScoped<IMenuRenderer, MenuRenderer>();
 
 var app = builder.Build();
 

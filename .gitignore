@@ -72,3 +72,6 @@ appsettings.Development.json
 
 # Archives
 *.zip
+
+# MP3's
+*.mp3

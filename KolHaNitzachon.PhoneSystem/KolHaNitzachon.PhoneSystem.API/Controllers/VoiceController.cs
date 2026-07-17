@@ -1,4 +1,5 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.Voice;
+﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Voice;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,26 +9,24 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
     [ApiController]
     public class VoiceController : ControllerBase
     {
-        private readonly IVoiceService _voiceService;
+        private readonly IMenuRenderer _menuRenderer;
 
-        public VoiceController(IVoiceService voiceService)
+        public VoiceController(
+            IMenuRenderer menuRenderer)
         {
-            _voiceService = voiceService;
+            _menuRenderer = menuRenderer;
         }
 
-        [HttpPost("call")]
-        public async Task<IActionResult> Call(
-            string phoneNumber,
-            string recordingUrl)
+        [HttpPost("handle-call")]
+        public IActionResult HandleCall()
         {
-            var sid = await _voiceService.CallAsync(
-                phoneNumber,
-                recordingUrl);
+            var digits = Request.Form["Digits"].ToString();
 
-            return Ok(new
-            {
-                CallSid = sid
-            });
+            var response = _menuRenderer.RenderMainMenu(digits);
+
+            return Content(
+                response.ToString(),
+                "application/xml");
         }
     }
 }
