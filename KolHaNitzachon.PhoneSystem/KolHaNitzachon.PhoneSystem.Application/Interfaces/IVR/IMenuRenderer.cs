@@ -10,13 +10,14 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR
 {
     public interface IMenuRenderer
     {
-        //VoiceResponse RenderMainMenu(string? digits);
-        //VoiceResponse RenderSponsorAllMenu(string? digits);
-        //VoiceResponse RenderSponsorSpecificMenu(string? digits);
-        //VoiceResponse RenderContestantList();
-        //VoiceResponse RenderContestantDonation(Recipient recipient);
-        //VoiceResponse RenderInvalidOption();
-
-        VoiceResponse RenderMainMenu(string? digits);
+        VoiceResponse RenderMainMenu(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderSponsorAllMenu(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderSponsorSpecificMenu(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderEnterContestantCode(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderContestantList(IEnumerable<Recipient> recipients, string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderContestantDonation(Recipient recipient, string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderPledgeConfirmation(Recipient recipient, decimal pledgeAmount, string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderInvalidOption(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderContestantNotFound(string actionUrl, string recordingBaseUrl);
     }
 }
