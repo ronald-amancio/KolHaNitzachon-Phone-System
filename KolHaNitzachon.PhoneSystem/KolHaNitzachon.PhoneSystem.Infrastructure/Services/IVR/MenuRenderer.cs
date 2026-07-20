@@ -1,4 +1,4 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using Twilio.TwiML;
