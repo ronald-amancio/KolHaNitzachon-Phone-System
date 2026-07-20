@@ -1,62 +1,114 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Domain.Entities;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Twilio.TwiML;
 
 namespace KolHaNitzachon.PhoneSystem.API.Controllers
 {
     [ApiController]
     [Route("api/ivr")]
+    [Produces("application/xml")]
     public class IVRFlowController : ControllerBase
     {
         private readonly IMenuRenderer _menuRenderer;
-        private readonly IRecipientRepository _recipientRepository;
         private readonly ILogger<IVRFlowController> _logger;
+
+        /*
+         * TODO (PRODUCTION):
+         * Re-enable this dependency when the IVR is switched from temporary
+         * in-memory test data to the SQL/EF Core RecipientRepository.
+         */
+        // private readonly IRecipientRepository _recipientRepository;
+
+        /*
+         * ================================================================
+         * TEMPORARY IVR TEST DATA
+         * ================================================================
+         *
+         * Purpose:
+         * Allows the complete IVR menu flow to be tested before the live
+         * repository is enabled.
+         *
+         * Production replacement:
+         *
+         * 1. Re-enable IRecipientRepository above and in the constructor.
+         * 2. Replace TestRecipients lookups with:
+         *
+         *    await _recipientRepository.GetAllAsync(...)
+         *    await _recipientRepository.GetByIdAsync(...)
+         *    await _recipientRepository.GetByCodeAsync(...)
+         *
+         * 3. In Program.cs, replace InMemoryRecipientRepository registration
+         *    with RecipientRepository.
+         *
+         * ================================================================
+         */
+        private static readonly IReadOnlyCollection<Recipient> TestRecipients =
+            new List<Recipient>
+            {
+                new()
+                {
+                    Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                    Code = 203,
+                    Name = "John Smith",
+                    StartDate = DateTime.UtcNow.Date.AddDays(-16),
+                    EndDate = DateTime.UtcNow.Date.AddMonths(1),
+                    NameRecordingUrl = "JohnSmith.mp3"
+                },
+                new()
+                {
+                    Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                    Code = 301,
+                    Name = "David Cohen",
+                    StartDate = DateTime.UtcNow.Date.AddDays(-8),
+                    EndDate = DateTime.UtcNow.Date.AddMonths(1),
+                    NameRecordingUrl = "DavidCohen.mp3"
+                }
+            };
 
         public IVRFlowController(
             IMenuRenderer menuRenderer,
-            IRecipientRepository recipientRepository,
-            ILogger<IVRFlowController> logger)
+            ILogger<IVRFlowController> logger
+            /*
+             * TODO (PRODUCTION):
+             * Add this parameter back:
+             *
+             * , IRecipientRepository recipientRepository
+             */
+        )
         {
             _menuRenderer = menuRenderer;
-            _recipientRepository = recipientRepository;
             _logger = logger;
+
+            /*
+             * TODO (PRODUCTION):
+             * Restore this assignment:
+             *
+             * _recipientRepository = recipientRepository;
+             */
         }
 
         [HttpPost("handle-call")]
+        [Consumes("multipart/form-data")]
         public async Task<IActionResult> HandleCall(
             [FromQuery] string? step,
             [FromQuery] Guid? recipientId,
             [FromForm(Name = "CallSid")] string? callSid,
             [FromForm(Name = "From")] string? from,
-            [FromForm(Name = "Digits")] string? digits)
+            [FromForm(Name = "Digits")] string? digits,
+            CancellationToken cancellationToken)
         {
             try
             {
-                step = string.IsNullOrWhiteSpace(step)
-                    ? "main"
-                    : step.Trim().ToLowerInvariant();
-
+                step = NormalizeStep(step);
                 digits = NormalizeDigits(digits);
 
-                var baseUrl =
-                    $"{Request.Scheme}://{Request.Host}";
-
-                /*
-                 * TEMPORARY LOCAL RECORDING LOCATION
-                 *
-                 * Files are currently served from:
-                 * API/wwwroot/recordings/
-                 *
-                 * After Azure is configured, MenuRenderer can use
-                 * BlobStorageService.GenerateSasUrl instead.
-                 */
-                var recordingBaseUrl =
-                    $"{baseUrl}/recordings";
+                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+                var recordingBaseUrl = $"{baseUrl}/recordings";
 
                 _logger.LogInformation(
-                    "IVR webhook. Step={Step}, CallSid={CallSid}, " +
+                    "IVR request received. Step={Step}, CallSid={CallSid}, " +
                     "From={From}, Digits={Digits}, RecipientId={RecipientId}",
                     step,
                     callSid ?? "none",
@@ -64,116 +116,110 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     digits ?? "none",
                     recipientId);
 
-                switch (step)
+                return step switch
                 {
-                    case "main":
-                        return await HandleMainMenuAsync(
-                            digits,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "main" => await HandleMainMenuAsync(
+                        digits,
+                        baseUrl,
+                        recordingBaseUrl,
+                        cancellationToken),
 
-                    case "sponsor-all":
-                        return HandleSponsorAllMenu(
-                            digits,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "sponsor-all" => HandleSponsorAllMenu(
+                        digits,
+                        baseUrl,
+                        recordingBaseUrl),
 
-                    case "sponsor-specific":
-                        return HandleSponsorSpecificMenu(
-                            digits,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "sponsor-specific" => HandleSponsorSpecificMenu(
+                        digits,
+                        baseUrl,
+                        recordingBaseUrl),
 
-                    case "contestant-code":
-                        return await HandleContestantCodeAsync(
-                            digits,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "contestant-code" => await HandleContestantCodeAsync(
+                        digits,
+                        baseUrl,
+                        recordingBaseUrl,
+                        cancellationToken),
 
-                    case "contestant-list":
-                        return await HandleContestantListAsync(
-                            digits,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "contestant-list" => await HandleContestantListAsync(
+                        digits,
+                        baseUrl,
+                        recordingBaseUrl,
+                        cancellationToken),
 
-                    case "pledge-amount":
-                        return await HandlePledgeAmountAsync(
-                            digits,
-                            recipientId,
-                            baseUrl,
-                            recordingBaseUrl);
+                    "pledge-amount" => await HandlePledgeAmountAsync(
+                        digits,
+                        recipientId,
+                        baseUrl,
+                        recordingBaseUrl,
+                        cancellationToken),
 
-                    default:
-                        return Xml(
-                            _menuRenderer.RenderInvalidOption(
-                                BuildActionUrl(
-                                    baseUrl,
-                                    "main"),
-                                recordingBaseUrl));
-                }
+                    _ => Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            BuildActionUrl(baseUrl, "main"),
+                            recordingBaseUrl))
+                };
+            }
+            catch (OperationCanceledException)
+            {
+                return StatusCode(StatusCodes.Status499ClientClosedRequest);
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "Unhandled error while processing IVR webhook.");
+                    "Unhandled error while processing the IVR request.");
 
-                var errorResponse =
-                    new Twilio.TwiML.VoiceResponse();
-
+                var errorResponse = new VoiceResponse();
                 errorResponse.Say(
                     "We are currently experiencing a technical issue. " +
                     "Please try again later.");
-
                 errorResponse.Hangup();
 
                 return Xml(errorResponse);
             }
         }
 
-        private async Task<IActionResult> HandleMainMenuAsync(
+        private Task<IActionResult> HandleMainMenuAsync(
             string? digits,
             string baseUrl,
-            string recordingBaseUrl)
+            string recordingBaseUrl,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            IActionResult result;
+
             if (string.IsNullOrWhiteSpace(digits))
             {
-                return Xml(
+                result = Xml(
                     _menuRenderer.RenderMainMenu(
-                        BuildActionUrl(
-                            baseUrl,
-                            "main"),
+                        BuildActionUrl(baseUrl, "main"),
                         recordingBaseUrl));
+
+                return Task.FromResult(result);
             }
 
-            return digits switch
+            result = digits switch
             {
                 "1" => Xml(
                     _menuRenderer.RenderSponsorAllMenu(
-                        BuildActionUrl(
-                            baseUrl,
-                            "sponsor-all"),
+                        BuildActionUrl(baseUrl, "sponsor-all"),
                         recordingBaseUrl)),
 
                 "2" => Xml(
                     _menuRenderer.RenderSponsorSpecificMenu(
-                        BuildActionUrl(
-                            baseUrl,
-                            "sponsor-specific"),
+                        BuildActionUrl(baseUrl, "sponsor-specific"),
                         recordingBaseUrl)),
 
-                "3" => await HandleContestantListAsync(
-                    null,
-                    baseUrl,
-                    recordingBaseUrl),
+                "3" => RedirectToStep(baseUrl, "contestant-list"),
 
                 _ => Xml(
                     _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(
-                            baseUrl,
-                            "main"),
+                        BuildActionUrl(baseUrl, "main"),
                         recordingBaseUrl))
             };
+
+            return Task.FromResult(result);
         }
 
         private IActionResult HandleSponsorAllMenu(
@@ -185,21 +231,14 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             {
                 return Xml(
                     _menuRenderer.RenderSponsorAllMenu(
-                        BuildActionUrl(
-                            baseUrl,
-                            "sponsor-all"),
+                        BuildActionUrl(baseUrl, "sponsor-all"),
                         recordingBaseUrl));
             }
 
-            /*
-             * Sponsor-all calculation will be added after
-             * the contestant-specific flow is stable.
-             */
+            // TODO: Implement sponsor-all calculations and amount collection.
             return Xml(
                 _menuRenderer.RenderInvalidOption(
-                    BuildActionUrl(
-                        baseUrl,
-                        "sponsor-all"),
+                    BuildActionUrl(baseUrl, "sponsor-all"),
                     recordingBaseUrl));
         }
 
@@ -212,194 +251,208 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             {
                 return Xml(
                     _menuRenderer.RenderSponsorSpecificMenu(
-                        BuildActionUrl(
-                            baseUrl,
-                            "sponsor-specific"),
+                        BuildActionUrl(baseUrl, "sponsor-specific"),
                         recordingBaseUrl));
             }
 
             return digits switch
             {
-                // Enter contestant code.
                 "1" => Xml(
                     _menuRenderer.RenderEnterContestantCode(
-                        BuildActionUrl(
-                            baseUrl,
-                            "contestant-code"),
+                        BuildActionUrl(baseUrl, "contestant-code"),
                         recordingBaseUrl)),
 
-                // Hear the active contestant list.
-                "2" => RedirectToStep(
-                    baseUrl,
-                    "contestant-list"),
+                "2" => RedirectToStep(baseUrl, "contestant-list"),
 
                 _ => Xml(
                     _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(
-                            baseUrl,
-                            "sponsor-specific"),
+                        BuildActionUrl(baseUrl, "sponsor-specific"),
                         recordingBaseUrl))
             };
         }
 
-        private async Task<IActionResult> HandleContestantCodeAsync(
+        private Task<IActionResult> HandleContestantCodeAsync(
             string? digits,
             string baseUrl,
-            string recordingBaseUrl)
+            string recordingBaseUrl,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (string.IsNullOrWhiteSpace(digits))
             {
-                return Xml(
-                    _menuRenderer.RenderEnterContestantCode(
-                        BuildActionUrl(
-                            baseUrl,
-                            "contestant-code"),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderEnterContestantCode(
+                            BuildActionUrl(baseUrl, "contestant-code"),
+                            recordingBaseUrl)));
             }
 
-            if (!int.TryParse(
-                    digits,
-                    out var contestantCode))
+            if (!int.TryParse(digits, out var contestantCode))
             {
-                return Xml(
-                    _menuRenderer.RenderContestantNotFound(
-                        BuildActionUrl(
-                            baseUrl,
-                            "contestant-code"),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderContestantNotFound(
+                            BuildActionUrl(baseUrl, "contestant-code"),
+                            recordingBaseUrl)));
             }
 
-            var recipients =
-                await _recipientRepository.GetAllAsync();
+            /*
+             * TEMPORARY TEST LOOKUP
+             *
+             * TODO (PRODUCTION): Replace with:
+             *
+             * var recipient =
+             *     await _recipientRepository.GetByCodeAsync(
+             *         contestantCode,
+             *         cancellationToken);
+             */
+            var recipient = TestRecipients.FirstOrDefault(
+                x => x.Code == contestantCode && IsRecipientActive(x));
 
-            var recipient = recipients.FirstOrDefault(
-                x => x.Code == contestantCode &&
-                     IsRecipientActive(x));
-
-            if (recipient == null)
+            if (recipient is null)
             {
-                return Xml(
-                    _menuRenderer.RenderContestantNotFound(
-                        BuildActionUrl(
-                            baseUrl,
-                            "contestant-code"),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderContestantNotFound(
+                            BuildActionUrl(baseUrl, "contestant-code"),
+                            recordingBaseUrl)));
             }
 
-            var amountActionUrl =
+            var pledgeAmountActionUrl =
                 BuildActionUrl(
                     baseUrl,
                     "pledge-amount",
                     recipient.Id);
 
-            return Xml(
-                _menuRenderer.RenderContestantDonation(
-                    recipient,
-                    amountActionUrl,
-                    recordingBaseUrl));
+            return Task.FromResult<IActionResult>(
+                Xml(
+                    _menuRenderer.RenderContestantDonation(
+                        recipient,
+                        pledgeAmountActionUrl,
+                        recordingBaseUrl)));
         }
 
         private async Task<IActionResult> HandleContestantListAsync(
             string? digits,
             string baseUrl,
-            string recordingBaseUrl)
+            string recordingBaseUrl,
+            CancellationToken cancellationToken)
         {
-            /*
-             * When the list finishes, the caller may immediately type
-             * a contestant code followed by #.
-             */
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!string.IsNullOrWhiteSpace(digits))
             {
                 return await HandleContestantCodeAsync(
                     digits,
                     baseUrl,
-                    recordingBaseUrl);
+                    recordingBaseUrl,
+                    cancellationToken);
             }
 
-            var recipients =
-                await _recipientRepository.GetAllAsync();
+            /*
+             * TEMPORARY TEST LOOKUP
+             *
+             * TODO (PRODUCTION): Replace with:
+             *
+             * var recipients =
+             *     await _recipientRepository.GetAllAsync(cancellationToken);
+             */
+            var activeRecipients = TestRecipients
+                .Where(IsRecipientActive)
+                .OrderBy(x => x.Name)
+                .ToList();
 
             return Xml(
                 _menuRenderer.RenderContestantList(
-                    recipients,
-                    BuildActionUrl(
-                        baseUrl,
-                        "contestant-list"),
+                    activeRecipients,
+                    BuildActionUrl(baseUrl, "contestant-list"),
                     recordingBaseUrl));
         }
 
-        private async Task<IActionResult> HandlePledgeAmountAsync(
+        private Task<IActionResult> HandlePledgeAmountAsync(
             string? digits,
             Guid? recipientId,
             string baseUrl,
-            string recordingBaseUrl)
+            string recordingBaseUrl,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!recipientId.HasValue)
             {
-                return Xml(
-                    _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(
-                            baseUrl,
-                            "main"),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            BuildActionUrl(baseUrl, "main"),
+                            recordingBaseUrl)));
             }
 
-            var recipient =
-                await _recipientRepository.GetByIdAsync(
-                    recipientId.Value);
+            /*
+             * TEMPORARY TEST LOOKUP
+             *
+             * TODO (PRODUCTION): Replace with:
+             *
+             * var recipient =
+             *     await _recipientRepository.GetByIdAsync(
+             *         recipientId.Value,
+             *         cancellationToken);
+             */
+            var recipient = TestRecipients.FirstOrDefault(
+                x => x.Id == recipientId.Value && IsRecipientActive(x));
 
-            if (recipient == null)
+            if (recipient is null)
             {
-                return Xml(
-                    _menuRenderer.RenderContestantNotFound(
-                        BuildActionUrl(
-                            baseUrl,
-                            "contestant-code"),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderContestantNotFound(
+                            BuildActionUrl(baseUrl, "contestant-code"),
+                            recordingBaseUrl)));
             }
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                return Xml(
-                    _menuRenderer.RenderContestantDonation(
-                        recipient,
-                        BuildActionUrl(
-                            baseUrl,
-                            "pledge-amount",
-                            recipient.Id),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderContestantDonation(
+                            recipient,
+                            BuildActionUrl(
+                                baseUrl,
+                                "pledge-amount",
+                                recipient.Id),
+                            recordingBaseUrl)));
             }
 
-            if (!decimal.TryParse(
-                    digits,
-                    out var pledgeAmount) ||
+            if (!decimal.TryParse(digits, out var pledgeAmount) ||
                 pledgeAmount <= 0)
             {
-                return Xml(
-                    _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(
-                            baseUrl,
-                            "pledge-amount",
-                            recipient.Id),
-                        recordingBaseUrl));
+                return Task.FromResult<IActionResult>(
+                    Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            BuildActionUrl(
+                                baseUrl,
+                                "pledge-amount",
+                                recipient.Id),
+                            recordingBaseUrl)));
             }
 
             /*
-             * This is where the Cardknox/Sola payment flow will begin.
-             * For now, we confirm the dynamically entered amount.
+             * Current testing endpoint:
+             * confirms the entered pledge amount using TTS.
+             *
+             * TODO (PRODUCTION):
+             * Continue to the Cardknox/Sola payment collection step.
              */
-            return Xml(
-                _menuRenderer.RenderPledgeConfirmation(
-                    recipient,
-                    pledgeAmount,
-                    BuildActionUrl(
-                        baseUrl,
-                        "main"),
-                    recordingBaseUrl));
+            return Task.FromResult<IActionResult>(
+                Xml(
+                    _menuRenderer.RenderPledgeConfirmation(
+                        recipient,
+                        pledgeAmount,
+                        BuildActionUrl(baseUrl, "main"),
+                        recordingBaseUrl)));
         }
 
-        private ContentResult Xml(
-            Twilio.TwiML.VoiceResponse response)
+        private ContentResult Xml(VoiceResponse response)
         {
             return Content(
                 response.ToString(),
@@ -410,8 +463,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             string baseUrl,
             string step)
         {
-            var response =
-                new Twilio.TwiML.VoiceResponse();
+            var response = new VoiceResponse();
 
             response.Redirect(
                 new Uri(
@@ -429,20 +481,31 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             var url =
                 $"{baseUrl.TrimEnd('/')}" +
-                $"/api/ivr/handle-call" +
+                "/api/ivr/handle-call" +
                 $"?step={Uri.EscapeDataString(step)}";
 
             if (recipientId.HasValue)
             {
-                url +=
-                    $"&recipientId={recipientId.Value}";
+                url += $"&recipientId={recipientId.Value}";
             }
 
             return url;
         }
 
-        private static string? NormalizeDigits(
-            string? digits)
+        private static string NormalizeStep(string? step)
+        {
+            if (string.IsNullOrWhiteSpace(step) ||
+                step.Equals(
+                    "string",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "main";
+            }
+
+            return step.Trim().ToLowerInvariant();
+        }
+
+        private static string? NormalizeDigits(string? digits)
         {
             if (string.IsNullOrWhiteSpace(digits) ||
                 digits.Equals(
@@ -452,14 +515,15 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 return null;
             }
 
-            return new string(
-                digits
-                    .Where(char.IsDigit)
-                    .ToArray());
+            var numericDigits = new string(
+                digits.Where(char.IsDigit).ToArray());
+
+            return string.IsNullOrWhiteSpace(numericDigits)
+                ? null
+                : numericDigits;
         }
 
-        private static bool IsRecipientActive(
-            Recipient recipient)
+        private static bool IsRecipientActive(Recipient recipient)
         {
             var today = DateTime.UtcNow.Date;
 

@@ -1,15 +1,20 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KolHaNitzachon.PhoneSystem.Infrastructure.Repositories
 {
+    /*
+     * PRODUCTION EF CORE REPOSITORY
+     *
+     * Register this implementation in Program.cs when the IVR is ready to
+     * use live recipient data:
+     *
+     * builder.Services.AddScoped<
+     *     IRecipientRepository,
+     *     RecipientRepository>();
+     */
     public class RecipientRepository : IRecipientRepository
     {
         private readonly PhoneSystemDbContext _context;
@@ -19,38 +24,71 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Repositories
             _context = context;
         }
 
-        public async Task<IEnumerable<Recipient>> GetAllAsync()
+        public async Task<IReadOnlyCollection<Recipient>> GetAllAsync(
+            CancellationToken cancellationToken = default)
         {
-            return await _context.Recipients.ToListAsync();
+            return await _context.Recipients
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<Recipient?> GetByIdAsync(Guid id)
+        public async Task<Recipient?> GetByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
         {
-            return await _context.Recipients.FindAsync(id);
+            return await _context.Recipients
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.Id == id,
+                    cancellationToken);
         }
 
-        public async Task AddAsync(Recipient recipient)
+        public async Task<Recipient?> GetByCodeAsync(
+            int code,
+            CancellationToken cancellationToken = default)
         {
-            _context.Recipients.Add(recipient);
-            await _context.SaveChangesAsync();
+            return await _context.Recipients
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.Code == code,
+                    cancellationToken);
         }
 
-        public async Task UpdateAsync(Recipient recipient)
+        public async Task AddAsync(
+            Recipient recipient,
+            CancellationToken cancellationToken = default)
+        {
+            await _context.Recipients.AddAsync(
+                recipient,
+                cancellationToken);
+
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task UpdateAsync(
+            Recipient recipient,
+            CancellationToken cancellationToken = default)
         {
             _context.Recipients.Update(recipient);
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task DeleteAsync(Guid id)
+        public async Task DeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
         {
-            var recipient = await _context.Recipients.FindAsync(id);
+            var recipient = await _context.Recipients
+                .FirstOrDefaultAsync(
+                    x => x.Id == id,
+                    cancellationToken);
 
-            if (recipient == null)
+            if (recipient is null)
+            {
                 return;
+            }
 
             _context.Recipients.Remove(recipient);
-
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
     }
 }

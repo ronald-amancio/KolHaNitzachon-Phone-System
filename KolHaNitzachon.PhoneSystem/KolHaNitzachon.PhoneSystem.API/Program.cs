@@ -36,6 +36,7 @@ builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorage>();
 builder.Services.Configure<SignalWireSettings>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.Configure<SignalWireOptions>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.AddScoped<IVoiceService, SignalWireVoiceService>();
+builder.Services.AddSingleton<IRecipientRepository, InMemoryRecipientRepository>();
 
 builder.Services.AddScoped<IMenuRenderer, MenuRenderer>();
 
