@@ -7,8 +7,8 @@ using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Voice;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Payment;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Persistence;
+using KolHaNitzachon.PhoneSystem.Infrastructure.Recordings;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Repositories;
-using KolHaNitzachon.PhoneSystem.Infrastructure.Services;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services.Voice;
 using KolHaNitzachon.PhoneSystem.Infrastructure.SignalWire;
@@ -31,12 +31,15 @@ builder.Services.AddHttpClient<IPaymentGatewayService, SolaPaymentGatewayService
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IRecipientRepository, RecipientRepository>();
 
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorage>();
+//builder.Services.AddHttpContextAccessor();
+//builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
 builder.Services.Configure<SignalWireSettings>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.Configure<SignalWireOptions>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.AddScoped<IVoiceService, SignalWireVoiceService>();
-builder.Services.AddSingleton<IRecipientRepository, InMemoryRecipientRepository>();
+//builder.Services.AddSingleton<IRecipientRepository, InMemoryRecipientRepository>();
+
+builder.Services.Configure<LocalRecordingStorageOptions>(builder.Configuration.GetSection(LocalRecordingStorageOptions.SectionName));
+builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
 
 builder.Services.AddScoped<IMenuRenderer, MenuRenderer>();
 

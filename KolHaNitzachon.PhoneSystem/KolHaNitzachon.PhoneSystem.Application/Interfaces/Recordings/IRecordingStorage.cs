@@ -8,10 +8,7 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings
 {
     public interface IRecordingStorage
     {
-        Task<string> UploadAsync(
-        Stream stream,
-        string fileName,
-        string contentType);
+        Task<RecordingUploadResult> UploadAsync(RecordingUploadRequest request, CancellationToken cancellationToken = default);
 
         Task DeleteAsync(string fileName);
     }

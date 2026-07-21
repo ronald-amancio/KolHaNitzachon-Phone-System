@@ -1,11 +1,13 @@
 ﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
+using KolHaNitzachon.PhoneSystem.Infrastructure.Services;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Text;
 
-namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services
+namespace KolHaNitzachon.PhoneSystem.Infrastructure.Recordings
 {
-    public sealed class LocalRecordingStorage : IRecordingStorage
+    public sealed class LocalRecordingStorageService : IRecordingStorage
     {
         private const long MaximumFileSizeBytes = 20_000_000;
 
@@ -22,11 +24,11 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services
         ];
 
         private readonly IWebHostEnvironment _environment;
-        private readonly ILogger<LocalRecordingStorage> _logger;
+        private readonly ILogger<LocalRecordingStorageService> _logger;
 
-        public LocalRecordingStorage(
+        public LocalRecordingStorageService(
             IWebHostEnvironment environment,
-            ILogger<LocalRecordingStorage> logger)
+            ILogger<LocalRecordingStorageService> logger)
         {
             _environment = environment;
             _logger = logger;
