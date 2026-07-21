@@ -1,74 +1,45 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Kol HaNitzachon - Recipient Maintenance</title>
-
-        <link rel="stylesheet" href="css/style.css">
-    </head>
-    <body>
-        <header>
-            <div class="container">
-                <h1>Kol HaNitzachon Phone System</h1>
-                <span>Recipient Maintenance</span>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kol HaNitzachon - Recipient Maintenance</title>
+    <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-content">
+            <div>
+                <p class="eyebrow">Kol HaNitzachon</p>
+                <h1>Phone System</h1>
+                <p class="header-subtitle">Recipient Maintenance</p>
             </div>
-        </header>
+            <div class="header-badge" aria-label="Administration portal">Admin Portal</div>
+        </div>
+    </header>
 
-        <main class="container">
-            <section class="panel">
-                <div class="panel-header">
-                    <h2 id="formTitle">Add | Edit Recipient</h2>
+    <main class="container page-content">
+        <section class="panel" aria-labelledby="recipientsHeading">
+            <div class="panel-header panel-header-actions">
+                <div>
+                    <h2 id="recipientsHeading">Recipients</h2>
+                    <p>Manage contestant details, active dates, and name recordings.</p>
                 </div>
-                <div class="panel-body">
-                    <form id="recipientForm">
-                        <input type="hidden" id="recipientId">
-                        <input type="hidden" id="existingRecordingUrl">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Code *</label>
-                                <input type="number" id="code" >
-                            </div>
-                            <div class="form-group">
-                                <label>Name *</label>
-                                <input type="text" id="name" >
-                            </div>
-                            <div class="form-group full-width">
-                                <label>Recording</label>
-                                <input type="file" id="recording">
-                            </div>
-                            <div class="form-group">
-                                <label>Start Date</label>
-                                <input type="date" id="startDate">
-                            </div>
-                            <div class="form-group">
-                                <label>End Date</label>
-                                <input type="date" id="endDate">
-                            </div>
-                        </div>
+                <button type="button" id="addRecipientButton" class="button primary">
+                    <span aria-hidden="true">＋</span> Add Recipient
+                </button>
+            </div>
 
-                        <div class="buttons">
-                            <button type="submit"
-                                    id="saveButton"
-                                    class="primary">
-                                Save Recipient
-                            </button>
-
-                            <button type="button"
-                                    id="cancelEdit"
-                                    class="secondary">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
+            <div class="panel-body">
+                <div id="loadingState" class="status-message">Loading recipients...</div>
+                <div id="emptyState" class="empty-state" hidden>
+                    <div class="empty-icon" aria-hidden="true">♫</div>
+                    <h3>No recipients yet</h3>
+                    <p>Add the first recipient to begin testing the IVR workflow.</p>
+                    <button type="button" id="emptyAddButton" class="button primary">Add Recipient</button>
                 </div>
-            </section>
 
-            <section class="panel">
-                <div class="panel-header">
-                    <h2>Recipients</h2>
-                </div>
-                <div class="panel-body">
+                <div id="tableContainer" class="table-container" hidden>
                     <table>
                         <thead>
                             <tr>
@@ -77,19 +48,79 @@
                                 <th>Start</th>
                                 <th>End</th>
                                 <th>Recording</th>
-                                <th>Actions</th>
+                                <th class="actions-column">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="recipientTable"></tbody>
                     </table>
                 </div>
-            </section>
-        </main>
+            </div>
+        </section>
+    </main>
 
-        <div id="toast" class="toast">
-            <span id="toastMessage"></span>
-        </div>
+    <div id="recipientModal" class="modal" aria-hidden="true">
+        <div class="modal-backdrop" data-close-modal></div>
+        <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="formTitle">
+            <div class="modal-header">
+                <div>
+                    <p class="modal-kicker">Recipient Details</p>
+                    <h2 id="formTitle">Add Recipient</h2>
+                </div>
+                <button type="button" id="closeModalButton" class="icon-button" aria-label="Close modal">×</button>
+            </div>
 
-        <script src="js/app.js"></script>
-    </body>
+            <form id="recipientForm" novalidate>
+                <div class="modal-body">
+                    <input type="hidden" id="recipientId">
+                    <input type="hidden" id="existingRecordingUrl">
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="code">Code <span>*</span></label>
+                            <input type="number" id="code" min="1" step="1" inputmode="numeric" required>
+                            <small>Unique contestant code used in the IVR.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="name">Name <span>*</span></label>
+                            <input type="text" id="name" maxlength="150" autocomplete="off" required>
+                            <small>Contestant name displayed in the admin list.</small>
+                        </div>
+
+                        <div class="form-group full-width">
+                            <label for="recording">Name Recording</label>
+                            <input type="file" id="recording" accept="audio/mpeg,.mp3">
+                            <small id="recordingHelp">Upload an MP3 recording of the contestant's name.</small>
+                            <a id="existingRecordingLink" class="existing-recording" href="#" target="_blank" rel="noopener" hidden>▶ Play current recording</a>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="startDate">Start Date <span>*</span></label>
+                            <input type="date" id="startDate" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="endDate">End Date</label>
+                            <input type="date" id="endDate">
+                            <small>Leave blank if there is no end date.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" id="cancelEdit" class="button secondary">Cancel</button>
+                    <button type="submit" id="saveButton" class="button primary">
+                        <span id="saveButtonText">Save Recipient</span>
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite">
+        <span id="toastMessage"></span>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
 </html>

@@ -74,4 +74,4 @@ appsettings.Development.json
 *.zip
 
 # MP3's
-*.mp3
+#*.mp3

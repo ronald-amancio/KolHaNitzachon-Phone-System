@@ -1,5 +1,5 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
-using Microsoft.AspNetCore.Http;
+﻿using KolHaNitzachon.PhoneSystem.API.Contracts.Recordings;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KolHaNitzachon.PhoneSystem.API.Controllers
@@ -8,30 +8,95 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
     [ApiController]
     public class RecordingsController : ControllerBase
     {
-        private readonly IRecordingStorage _storage;
+        private const long MaximumRequestSizeBytes = 20_000_000;
 
-        public RecordingsController(IRecordingStorage storage)
+        private readonly IRecordingStorage _recordingStorage;
+        private readonly ILogger<RecordingsController> _logger;
+
+        public RecordingsController(
+            IRecordingStorage recordingStorage,
+            ILogger<RecordingsController> logger)
         {
-            _storage = storage;
+            _recordingStorage = recordingStorage;
+            _logger = logger;
         }
 
         [HttpPost("upload")]
-        public async Task<IActionResult> Upload(IFormFile file)
+        [Consumes("multipart/form-data")]
+        [ProducesResponseType<RecordingUploadResponse>(
+            StatusCodes.Status200OK)]
+        [ProducesResponseType<ProblemDetails>(
+            StatusCodes.Status400BadRequest)]
+        [ProducesResponseType<ProblemDetails>(
+            StatusCodes.Status500InternalServerError)]
+        [RequestSizeLimit(MaximumRequestSizeBytes)]
+        public async Task<ActionResult<RecordingUploadResponse>> Upload(
+            IFormFile? file,
+            CancellationToken cancellationToken)
         {
-            if (file == null)
-                return BadRequest();
+            if (file is null || file.Length == 0)
+            {
+                return BadRequest(CreateProblemDetails(
+                    StatusCodes.Status400BadRequest,
+                    "Recording file required",
+                    "No recording file was provided."));
+            }
 
             await using var stream = file.OpenReadStream();
 
-            var url = await _storage.UploadAsync(
-                stream,
-                file.FileName,
-                file.ContentType);
+            var request = new RecordingUploadRequest(
+                Content: stream,
+                OriginalFileName: file.FileName,
+                ContentType: file.ContentType,
+                Length: file.Length);
 
-            return Ok(new
+            try
             {
-                url
-            });
+                var result = await _recordingStorage.UploadAsync(
+                    request,
+                    cancellationToken);
+
+                var absoluteUrl = BuildAbsoluteUrl(result.RelativeUrl);
+
+                return Ok(new RecordingUploadResponse(
+                    FileName: result.FileName,
+                    Url: absoluteUrl));
+            }
+            catch (RecordingStorageException exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Recording upload rejected for file {FileName}",
+                    file.FileName);
+
+                return BadRequest(CreateProblemDetails(
+                    StatusCodes.Status400BadRequest,
+                    "Recording upload failed",
+                    exception.Message));
+            }
+        }
+
+        private string BuildAbsoluteUrl(string relativeUrl)
+        {
+            var normalizedUrl = relativeUrl.StartsWith('/')
+                ? relativeUrl
+                : $"/{relativeUrl}";
+
+            return $"{Request.Scheme}://{Request.Host}" +
+                   $"{Request.PathBase}{normalizedUrl}";
+        }
+
+        private static ProblemDetails CreateProblemDetails(
+            int status,
+            string title,
+            string detail)
+        {
+            return new ProblemDetails
+            {
+                Status = status,
+                Title = title,
+                Detail = detail
+            };
         }
     }
 }
