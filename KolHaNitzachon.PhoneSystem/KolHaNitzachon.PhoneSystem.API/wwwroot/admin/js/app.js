@@ -17,15 +17,35 @@ const cancelButton = document.getElementById("cancelEdit");
 const saveButton = document.getElementById("saveButton");
 const saveButtonText = document.getElementById("saveButtonText");
 const existingRecordingLink = document.getElementById("existingRecordingLink");
+const searchInput = document.getElementById("recipientSearch");
+const clearSearchButton = document.getElementById("clearSearchButton");
+const resetSearchButton = document.getElementById("resetSearchButton");
+const recipientCount = document.getElementById("recipientCount");
+const noResultsState = document.getElementById("noResultsState");
+const paginationContainer = document.getElementById("paginationContainer");
+const paginationSummary = document.getElementById("paginationSummary");
+const previousPageButton = document.getElementById("previousPageButton");
+const nextPageButton = document.getElementById("nextPageButton");
+const pageNumbers = document.getElementById("pageNumbers");
 
 let toastTimer;
 let lastFocusedElement = null;
+let allRecipients = [];
+let filteredRecipients = [];
+let currentPage = 1;
+
+const PAGE_SIZE = 10;
 
 form.addEventListener("submit", saveRecipient);
 addRecipientButton.addEventListener("click", openAddModal);
 emptyAddButton.addEventListener("click", openAddModal);
 closeModalButton.addEventListener("click", closeModal);
 cancelButton.addEventListener("click", closeModal);
+searchInput.addEventListener("input", handleSearchInput);
+clearSearchButton.addEventListener("click", resetSearch);
+resetSearchButton.addEventListener("click", resetSearch);
+previousPageButton.addEventListener("click", () => changePage(currentPage - 1));
+nextPageButton.addEventListener("click", () => changePage(currentPage + 1));
 
 modal.addEventListener("click", event => {
     if (event.target.hasAttribute("data-close-modal")) {
@@ -52,29 +72,84 @@ async function loadRecipients() {
         }
 
         const data = await response.json();
-        renderTable(Array.isArray(data) ? data : []);
+        allRecipients = Array.isArray(data) ? data : [];
+        applySearchAndPagination();
     }
     catch (error) {
         console.error(error);
+        allRecipients = [];
+        filteredRecipients = [];
+        updateRecipientCount(0, 0);
         setListState("empty");
         showToast(error.message, "error");
     }
 }
 
-function renderTable(data) {
-    table.innerHTML = "";
+function handleSearchInput() {
+    currentPage = 1;
+    clearSearchButton.hidden = searchInput.value.trim() === "";
+    applySearchAndPagination();
+}
 
-    if (data.length === 0) {
+function resetSearch() {
+    searchInput.value = "";
+    clearSearchButton.hidden = true;
+    currentPage = 1;
+    applySearchAndPagination();
+    searchInput.focus();
+}
+
+function resetGridState() {
+    searchInput.value = "";
+    clearSearchButton.hidden = true;
+    currentPage = 1;
+}
+
+function applySearchAndPagination() {
+    const query = normalizeSearchValue(searchInput.value);
+
+    filteredRecipients = allRecipients.filter(recipient => {
+        if (!query) {
+            return true;
+        }
+
+        const name = normalizeSearchValue(recipient.name);
+        const code = normalizeSearchValue(recipient.code);
+
+        return name.includes(query) || code.includes(query);
+    });
+
+    updateRecipientCount(filteredRecipients.length, allRecipients.length);
+
+    if (allRecipients.length === 0) {
+        table.innerHTML = "";
         setListState("empty");
+        renderPagination(0);
         return;
     }
 
+    if (filteredRecipients.length === 0) {
+        table.innerHTML = "";
+        setListState("no-results");
+        renderPagination(0);
+        return;
+    }
+
+    const totalPages = Math.ceil(filteredRecipients.length / PAGE_SIZE);
+    currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    const pageRecipients = filteredRecipients.slice(startIndex, startIndex + PAGE_SIZE);
+
+    renderTable(pageRecipients);
+    renderPagination(totalPages);
+}
+
+function renderTable(data) {
     const rows = data.map(recipient => `
         <tr>
             <td><span class="code-badge">${escapeHtml(recipient.code)}</span></td>
-            <td>
-                <div class="recipient-name">${escapeHtml(recipient.name)}</div>
-            </td>
+            <td><div class="recipient-name">${escapeHtml(recipient.name)}</div></td>
             <td>${formatDate(recipient.startDate) || "—"}</td>
             <td>${formatDate(recipient.endDate) || "—"}</td>
             <td>${renderRecording(recipient.nameRecordingUrl)}</td>
@@ -89,6 +164,101 @@ function renderTable(data) {
 
     table.innerHTML = rows.join("");
     setListState("table");
+}
+
+function changePage(page) {
+    const totalPages = Math.ceil(filteredRecipients.length / PAGE_SIZE);
+
+    if (page < 1 || page > totalPages || page === currentPage) {
+        return;
+    }
+
+    currentPage = page;
+    applySearchAndPagination();
+    tableContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderPagination(totalPages) {
+    pageNumbers.innerHTML = "";
+
+    if (totalPages <= 1) {
+        paginationContainer.hidden = true;
+        return;
+    }
+
+    paginationContainer.hidden = false;
+    previousPageButton.disabled = currentPage === 1;
+    nextPageButton.disabled = currentPage === totalPages;
+
+    const firstItem = ((currentPage - 1) * PAGE_SIZE) + 1;
+    const lastItem = Math.min(currentPage * PAGE_SIZE, filteredRecipients.length);
+    paginationSummary.textContent =
+        `Showing ${firstItem}–${lastItem} of ${filteredRecipients.length}`;
+
+    getVisiblePageNumbers(currentPage, totalPages).forEach(page => {
+        if (page === "ellipsis") {
+            const ellipsis = document.createElement("span");
+            ellipsis.className = "pagination-ellipsis";
+            ellipsis.textContent = "…";
+            pageNumbers.appendChild(ellipsis);
+            return;
+        }
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-number";
+        button.textContent = String(page);
+        button.setAttribute("aria-label", `Go to page ${page}`);
+
+        if (page === currentPage) {
+            button.classList.add("active");
+            button.setAttribute("aria-current", "page");
+        }
+
+        button.addEventListener("click", () => changePage(page));
+        pageNumbers.appendChild(button);
+    });
+}
+
+function getVisiblePageNumbers(activePage, totalPages) {
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    if (activePage <= 4) {
+        return [1, 2, 3, 4, 5, "ellipsis", totalPages];
+    }
+
+    if (activePage >= totalPages - 3) {
+        return [1, "ellipsis", totalPages - 4, totalPages - 3,
+            totalPages - 2, totalPages - 1, totalPages];
+    }
+
+    return [1, "ellipsis", activePage - 1, activePage,
+        activePage + 1, "ellipsis", totalPages];
+}
+
+function updateRecipientCount(filteredCount, totalCount) {
+    if (totalCount === 0) {
+        recipientCount.textContent = "0 recipients";
+        return;
+    }
+
+    if (filteredCount === totalCount) {
+        recipientCount.textContent =
+            `${totalCount} ${totalCount === 1 ? "recipient" : "recipients"}`;
+        return;
+    }
+
+    recipientCount.textContent = `${filteredCount} of ${totalCount} recipients`;
+}
+
+function normalizeSearchValue(value) {
+    return String(value ?? "")
+        .trim()
+        .toLocaleLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
 }
 
 function renderRecording(url) {
@@ -176,6 +346,7 @@ async function saveRecipient(event) {
         }
 
         closeModal();
+        resetGridState();
         await loadRecipients();
         showToast(isEditing ? "Recipient updated successfully." : "Recipient saved successfully.");
     }
@@ -204,6 +375,7 @@ async function deleteRecipient(id) {
             throw new Error("Unable to delete recipient.");
         }
 
+        resetGridState();
         await loadRecipients();
         showToast("Recipient deleted successfully.");
     }
@@ -345,7 +517,12 @@ function setSavingState(isSaving) {
 function setListState(state) {
     loadingState.hidden = state !== "loading";
     emptyState.hidden = state !== "empty";
+    noResultsState.hidden = state !== "no-results";
     tableContainer.hidden = state !== "table";
+
+    if (state !== "table") {
+        paginationContainer.hidden = true;
+    }
 }
 
 function formatDate(date) {
