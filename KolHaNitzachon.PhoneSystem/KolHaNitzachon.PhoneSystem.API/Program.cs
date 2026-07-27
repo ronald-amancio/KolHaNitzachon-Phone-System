@@ -12,6 +12,7 @@ using KolHaNitzachon.PhoneSystem.Infrastructure.Repositories;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR;
 using KolHaNitzachon.PhoneSystem.Infrastructure.Services.Voice;
 using KolHaNitzachon.PhoneSystem.Infrastructure.SignalWire;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,9 +42,25 @@ builder.Services.AddScoped<IVoiceService, SignalWireVoiceService>();
 builder.Services.Configure<LocalRecordingStorageOptions>(builder.Configuration.GetSection(LocalRecordingStorageOptions.SectionName));
 builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
 
+builder.Services.AddSingleton<INumberAudioComposer, NumberAudioComposer>();
+builder.Services.AddSingleton<IIvrCallSessionStore, InMemoryIvrCallSessionStore>();
+builder.Services.AddHostedService<IvrSessionCleanupService>();
 builder.Services.AddScoped<IMenuRenderer, MenuRenderer>();
 
+builder.Services.Configure<ForwardedHeadersOptions>(
+    options =>
+    {
+        options.ForwardedHeaders =
+            ForwardedHeaders.XForwardedFor |
+            ForwardedHeaders.XForwardedProto |
+            ForwardedHeaders.XForwardedHost;
+
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
 var app = builder.Build();
+app.UseForwardedHeaders();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
