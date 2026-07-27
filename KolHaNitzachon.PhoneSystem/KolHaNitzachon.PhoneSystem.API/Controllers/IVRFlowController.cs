@@ -1,7 +1,9 @@
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
+using KolHaNitzachon.PhoneSystem.Application.Models;
 using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
+using System.Globalization;
 using Twilio.TwiML;
 
 namespace KolHaNitzachon.PhoneSystem.API.Controllers
@@ -9,447 +11,546 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
     [ApiController]
     [Route("api/ivr")]
     [Produces("application/xml")]
-    public class IVRFlowController : ControllerBase
+    public sealed class IVRFlowController : ControllerBase
     {
+        private const decimal MinimumDonationAmount = 1m;
+        private const decimal MaximumTestDonationAmount = 1000m;
+
         private readonly IMenuRenderer _menuRenderer;
         private readonly ILogger<IVRFlowController> _logger;
-
-        /*
-         * TODO (PRODUCTION):
-         * Re-enable this dependency when the IVR is switched from temporary
-         * in-memory test data to the SQL/EF Core RecipientRepository.
-         */
-        // private readonly IRecipientRepository _recipientRepository;
-
-        /*
-         * ================================================================
-         * TEMPORARY IVR TEST DATA
-         * ================================================================
-         *
-         * Purpose:
-         * Allows the complete IVR menu flow to be tested before the live
-         * repository is enabled.
-         *
-         * Production replacement:
-         *
-         * 1. Re-enable IRecipientRepository above and in the constructor.
-         * 2. Replace TestRecipients lookups with:
-         *
-         *    await _recipientRepository.GetAllAsync(...)
-         *    await _recipientRepository.GetByIdAsync(...)
-         *    await _recipientRepository.GetByCodeAsync(...)
-         *
-         * 3. In Program.cs, replace InMemoryRecipientRepository registration
-         *    with RecipientRepository.
-         *
-         * ================================================================
-         */
-        private static readonly IReadOnlyCollection<Recipient> TestRecipients =
-            new List<Recipient>
-            {
-                new()
-                {
-                    Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                    Code = 203,
-                    Name = "John Smith",
-                    StartDate = DateTime.UtcNow.Date.AddDays(-16),
-                    EndDate = DateTime.UtcNow.Date.AddMonths(1),
-                    NameRecordingUrl = "JohnSmith.mp3"
-                },
-                new()
-                {
-                    Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
-                    Code = 301,
-                    Name = "David Cohen",
-                    StartDate = DateTime.UtcNow.Date.AddDays(-8),
-                    EndDate = DateTime.UtcNow.Date.AddMonths(1),
-                    NameRecordingUrl = "DavidCohen.mp3"
-                }
-            };
+        private readonly IIvrCallSessionStore _sessionStore;
 
         public IVRFlowController(
             IMenuRenderer menuRenderer,
-            ILogger<IVRFlowController> logger
-            /*
-             * TODO (PRODUCTION):
-             * Add this parameter back:
-             *
-             * , IRecipientRepository recipientRepository
-             */
-        )
+            IIvrCallSessionStore sessionStore,
+            ILogger<IVRFlowController> logger)
         {
             _menuRenderer = menuRenderer;
+            _sessionStore = sessionStore;
             _logger = logger;
-
-            /*
-             * TODO (PRODUCTION):
-             * Restore this assignment:
-             *
-             * _recipientRepository = recipientRepository;
-             */
         }
 
         [HttpPost("handle-call")]
-        [Consumes("multipart/form-data")]
-        public async Task<IActionResult> HandleCall(
-            [FromQuery] string? step,
-            [FromQuery] Guid? recipientId,
-            [FromForm(Name = "CallSid")] string? callSid,
-            [FromForm(Name = "From")] string? from,
-            [FromForm(Name = "Digits")] string? digits,
-            CancellationToken cancellationToken)
+        [Consumes(
+    "application/x-www-form-urlencoded",
+    "multipart/form-data")]
+        public IActionResult HandleCall(
+    [FromQuery] string? step,
+    [FromForm(Name = "CallSid")] string? callSid,
+    [FromForm(Name = "From")] string? from,
+    [FromForm(Name = "Digits")] string? digits)
         {
             try
             {
                 step = NormalizeStep(step);
                 digits = NormalizeDigits(digits);
 
-                var baseUrl = $"{Request.Scheme}://{Request.Host}";
-                var recordingBaseUrl = $"{baseUrl}/recordings";
+                var effectiveCallSid =
+                    ResolveCallSid(callSid);
+
+                var session = _sessionStore.GetOrCreate(
+                    effectiveCallSid,
+                    from);
+
+                session.CurrentStep = step;
+
+                _sessionStore.Update(session);
+
+                var applicationBaseUrl =
+                    GetApplicationBaseUrl();
+
+                var recordingBaseUrl =
+                    $"{applicationBaseUrl}/audio";
 
                 _logger.LogInformation(
-                    "IVR request received. Step={Step}, CallSid={CallSid}, " +
-                    "From={From}, Digits={Digits}, RecipientId={RecipientId}",
+                    "IVR request. Step={Step}, CallSid={CallSid}, " +
+                    "From={From}, Digits={Digits}, " +
+                    "DonationType={DonationType}, " +
+                    "DonationAmount={DonationAmount}",
                     step,
-                    callSid ?? "none",
+                    effectiveCallSid,
                     from ?? "none",
                     digits ?? "none",
-                    recipientId);
+                    session.DonationType,
+                    session.DonationAmount);
 
                 return step switch
                 {
-                    "main" => await HandleMainMenuAsync(
+                    "main" => HandleMainMenu(
+                        session,
                         digits,
-                        baseUrl,
-                        recordingBaseUrl,
-                        cancellationToken),
-
-                    "sponsor-all" => HandleSponsorAllMenu(
-                        digits,
-                        baseUrl,
+                        applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "sponsor-specific" => HandleSponsorSpecificMenu(
+                    "sponsor-all" => HandleSponsorAll(
+                        session,
                         digits,
-                        baseUrl,
+                        applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "contestant-code" => await HandleContestantCodeAsync(
+                    "donation-amount" => HandleDonationAmount(
+                        session,
                         digits,
-                        baseUrl,
-                        recordingBaseUrl,
-                        cancellationToken),
+                        applicationBaseUrl,
+                        recordingBaseUrl),
 
-                    "contestant-list" => await HandleContestantListAsync(
+                    "confirm-donation" => HandleDonationConfirmation(
+                        session,
                         digits,
-                        baseUrl,
-                        recordingBaseUrl,
-                        cancellationToken),
+                        applicationBaseUrl,
+                        recordingBaseUrl),
 
-                    "pledge-amount" => await HandlePledgeAmountAsync(
-                        digits,
-                        recipientId,
-                        baseUrl,
-                        recordingBaseUrl,
-                        cancellationToken),
+                    "end-call" => EndCall(
+                        session,
+                        recordingBaseUrl),
 
                     _ => Xml(
                         _menuRenderer.RenderInvalidOption(
-                            BuildActionUrl(baseUrl, "main"),
-                            recordingBaseUrl))
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                "main")))
                 };
             }
-            catch (OperationCanceledException)
-            {
-                return StatusCode(StatusCodes.Status499ClientClosedRequest);
-            }
-            catch (Exception ex)
+            catch (Exception exception)
             {
                 _logger.LogError(
-                    ex,
-                    "Unhandled error while processing the IVR request.");
+                    exception,
+                    "An error occurred while processing the IVR call.");
 
-                var errorResponse = new VoiceResponse();
-                errorResponse.Say(
-                    "We are currently experiencing a technical issue. " +
-                    "Please try again later.");
-                errorResponse.Hangup();
+                var response = new VoiceResponse();
 
-                return Xml(errorResponse);
+                response.Say(
+                    "A technical error occurred. Please try again later.");
+
+                response.Hangup();
+
+                return Xml(response);
             }
         }
 
-        private Task<IActionResult> HandleMainMenuAsync(
-            string? digits,
-            string baseUrl,
-            string recordingBaseUrl,
-            CancellationToken cancellationToken)
+        [HttpGet("debug/session/{callSid}")]
+        [Produces("application/json")]
+        public IActionResult GetSession(string callSid)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            IActionResult result;
-
-            if (string.IsNullOrWhiteSpace(digits))
+            if (!HttpContext.RequestServices
+                    .GetRequiredService<IHostEnvironment>()
+                    .IsDevelopment())
             {
-                result = Xml(
-                    _menuRenderer.RenderMainMenu(
-                        BuildActionUrl(baseUrl, "main"),
+                return NotFound();
+            }
+
+            if (!_sessionStore.TryGet(
+                    callSid,
+                    out var session))
+            {
+                return NotFound(
+                    new
+                    {
+                        message = "IVR session was not found."
+                    });
+            }
+
+            return Ok(
+                new
+                {
+                    session!.CallSid,
+                    session.CallerPhoneNumber,
+                    DonationType =
+                        session.DonationType?.ToString(),
+                    session.DonationAmount,
+                    session.RecipientId,
+                    session.RecipientCode,
+                    session.CurrentStep,
+                    session.CreatedAtUtc,
+                    session.LastUpdatedAtUtc,
+                    session.ExpiresAtUtc
+                });
+        }
+
+        #region Helpers
+        private static string ResolveCallSid(string? callSid)
+        {
+            if (!string.IsNullOrWhiteSpace(callSid))
+            {
+                return callSid.Trim();
+            }
+
+            // Only a fallback for Swagger or local manual testing.
+            return $"LOCAL-{Guid.NewGuid():N}";
+        }
+
+        private IActionResult HandleDonationConfirmation(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
+        {
+            if (session.DonationAmount is null)
+            {
+                _logger.LogWarning(
+                    "Donation confirmation requested without " +
+                    "an amount. CallSid={CallSid}",
+                    session.CallSid);
+
+                session.CurrentStep = "donation-amount";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterDonationAmount(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            "donation-amount"),
                         recordingBaseUrl));
-
-                return Task.FromResult(result);
             }
 
-            result = digits switch
-            {
-                "1" => Xml(
-                    _menuRenderer.RenderSponsorAllMenu(
-                        BuildActionUrl(baseUrl, "sponsor-all"),
-                        recordingBaseUrl)),
+            var confirmationActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "confirm-donation");
 
-                "2" => Xml(
-                    _menuRenderer.RenderSponsorSpecificMenu(
-                        BuildActionUrl(baseUrl, "sponsor-specific"),
-                        recordingBaseUrl)),
-
-                "3" => RedirectToStep(baseUrl, "contestant-list"),
-
-                _ => Xml(
-                    _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(baseUrl, "main"),
-                        recordingBaseUrl))
-            };
-
-            return Task.FromResult(result);
-        }
-
-        private IActionResult HandleSponsorAllMenu(
-            string? digits,
-            string baseUrl,
-            string recordingBaseUrl)
-        {
             if (string.IsNullOrWhiteSpace(digits))
             {
                 return Xml(
-                    _menuRenderer.RenderSponsorAllMenu(
-                        BuildActionUrl(baseUrl, "sponsor-all"),
+                    _menuRenderer.RenderDonationConfirmation(
+                        session.DonationAmount.Value,
+                        confirmationActionUrl,
                         recordingBaseUrl));
             }
 
-            // TODO: Implement sponsor-all calculations and amount collection.
+            switch (digits)
+            {
+                case "1":
+                    session.CurrentStep = "payment";
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderPreparingPayment(
+                            recordingBaseUrl));
+
+                case "2":
+                    session.DonationAmount = null;
+                    session.CurrentStep = "donation-amount";
+
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderEnterDonationAmount(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                "donation-amount"),
+                            recordingBaseUrl));
+
+                case "9":
+                    ResetSessionForMainMenu(session);
+
+                    return Xml(
+                        _menuRenderer.RenderMainMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                "main"),
+                            recordingBaseUrl));
+
+                default:
+                    return Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            confirmationActionUrl));
+            }
+        }
+
+        private void ResetSessionForMainMenu(IvrCallSession session)
+        {
+            session.CurrentStep = "main";
+            session.DonationType = null;
+            session.DonationAmount = null;
+            session.RecipientId = null;
+            session.RecipientCode = null;
+
+            _sessionStore.Update(session);
+        }
+
+        private IActionResult EndCall(IvrCallSession session, string recordingBaseUrl)
+        {
+            _sessionStore.Remove(session.CallSid);
+
+            var response = new VoiceResponse();
+
+            response.Say("Thank you for calling. Goodbye.");
+
+            response.Hangup();
+
+            return Xml(response);
+        }
+        #endregion
+
+        [HttpPost("test-payment-success")]
+        public IActionResult TestPaymentSuccess()
+        {
+            var recordingBaseUrl =
+                $"{GetApplicationBaseUrl()}/audio";
+
             return Xml(
-                _menuRenderer.RenderInvalidOption(
-                    BuildActionUrl(baseUrl, "sponsor-all"),
+                _menuRenderer.RenderPaymentSuccessful(
                     recordingBaseUrl));
         }
 
-        private IActionResult HandleSponsorSpecificMenu(
-            string? digits,
-            string baseUrl,
-            string recordingBaseUrl)
+        [HttpPost("test-payment-failure")]
+        public IActionResult TestPaymentFailure()
         {
+            var applicationBaseUrl = GetApplicationBaseUrl();
+            var recordingBaseUrl =
+                $"{applicationBaseUrl}/audio";
+
+            return Xml(
+                _menuRenderer.RenderPaymentFailed(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "main"),
+                    recordingBaseUrl));
+        }
+
+        private IActionResult HandleMainMenu(
+    IvrCallSession session,
+    string? digits,
+    string applicationBaseUrl,
+    string recordingBaseUrl)
+        {
+            var actionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "main");
+
             if (string.IsNullOrWhiteSpace(digits))
             {
+                session.CurrentStep = "main";
+
+                _sessionStore.Update(session);
+
                 return Xml(
-                    _menuRenderer.RenderSponsorSpecificMenu(
-                        BuildActionUrl(baseUrl, "sponsor-specific"),
+                    _menuRenderer.RenderMainMenu(
+                        actionUrl,
                         recordingBaseUrl));
             }
 
             return digits switch
             {
-                "1" => Xml(
-                    _menuRenderer.RenderEnterContestantCode(
-                        BuildActionUrl(baseUrl, "contestant-code"),
-                        recordingBaseUrl)),
-
-                "2" => RedirectToStep(baseUrl, "contestant-list"),
+                "1" => StartSponsorAllFlow(
+                    session,
+                    applicationBaseUrl,
+                    recordingBaseUrl),
 
                 _ => Xml(
                     _menuRenderer.RenderInvalidOption(
-                        BuildActionUrl(baseUrl, "sponsor-specific"),
-                        recordingBaseUrl))
+                        actionUrl))
             };
         }
 
-        private Task<IActionResult> HandleContestantCodeAsync(
-            string? digits,
-            string baseUrl,
-            string recordingBaseUrl,
-            CancellationToken cancellationToken)
+        private IActionResult StartSponsorAllFlow(IvrCallSession session, string applicationBaseUrl, string recordingBaseUrl)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            session.CurrentStep = "sponsor-all";
 
-            if (string.IsNullOrWhiteSpace(digits))
-            {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderEnterContestantCode(
-                            BuildActionUrl(baseUrl, "contestant-code"),
-                            recordingBaseUrl)));
-            }
+            // Clear values left over if the caller restarted the menu.
+            session.DonationType = null;
+            session.DonationAmount = null;
+            session.RecipientId = null;
+            session.RecipientCode = null;
 
-            if (!int.TryParse(digits, out var contestantCode))
-            {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderContestantNotFound(
-                            BuildActionUrl(baseUrl, "contestant-code"),
-                            recordingBaseUrl)));
-            }
-
-            /*
-             * TEMPORARY TEST LOOKUP
-             *
-             * TODO (PRODUCTION): Replace with:
-             *
-             * var recipient =
-             *     await _recipientRepository.GetByCodeAsync(
-             *         contestantCode,
-             *         cancellationToken);
-             */
-            var recipient = TestRecipients.FirstOrDefault(
-                x => x.Code == contestantCode && IsRecipientActive(x));
-
-            if (recipient is null)
-            {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderContestantNotFound(
-                            BuildActionUrl(baseUrl, "contestant-code"),
-                            recordingBaseUrl)));
-            }
-
-            var pledgeAmountActionUrl =
-                BuildActionUrl(
-                    baseUrl,
-                    "pledge-amount",
-                    recipient.Id);
-
-            return Task.FromResult<IActionResult>(
-                Xml(
-                    _menuRenderer.RenderContestantDonation(
-                        recipient,
-                        pledgeAmountActionUrl,
-                        recordingBaseUrl)));
-        }
-
-        private async Task<IActionResult> HandleContestantListAsync(
-            string? digits,
-            string baseUrl,
-            string recordingBaseUrl,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (!string.IsNullOrWhiteSpace(digits))
-            {
-                return await HandleContestantCodeAsync(
-                    digits,
-                    baseUrl,
-                    recordingBaseUrl,
-                    cancellationToken);
-            }
-
-            /*
-             * TEMPORARY TEST LOOKUP
-             *
-             * TODO (PRODUCTION): Replace with:
-             *
-             * var recipients =
-             *     await _recipientRepository.GetAllAsync(cancellationToken);
-             */
-            var activeRecipients = TestRecipients
-                .Where(IsRecipientActive)
-                .OrderBy(x => x.Name)
-                .ToList();
+            _sessionStore.Update(session);
 
             return Xml(
-                _menuRenderer.RenderContestantList(
-                    activeRecipients,
-                    BuildActionUrl(baseUrl, "contestant-list"),
+                _menuRenderer.RenderSponsorAllMenu(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "sponsor-all"),
                     recordingBaseUrl));
         }
 
-        private Task<IActionResult> HandlePledgeAmountAsync(
-            string? digits,
-            Guid? recipientId,
-            string baseUrl,
-            string recordingBaseUrl,
-            CancellationToken cancellationToken)
+        private IActionResult HandleSponsorAll(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var currentActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "sponsor-all");
 
-            if (!recipientId.HasValue)
+            if (string.IsNullOrWhiteSpace(digits))
             {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderInvalidOption(
-                            BuildActionUrl(baseUrl, "main"),
-                            recordingBaseUrl)));
+                session.CurrentStep = "sponsor-all";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderSponsorAllMenu(
+                        currentActionUrl,
+                        recordingBaseUrl));
             }
 
-            /*
-             * TEMPORARY TEST LOOKUP
-             *
-             * TODO (PRODUCTION): Replace with:
-             *
-             * var recipient =
-             *     await _recipientRepository.GetByIdAsync(
-             *         recipientId.Value,
-             *         cancellationToken);
-             */
-            var recipient = TestRecipients.FirstOrDefault(
-                x => x.Id == recipientId.Value && IsRecipientActive(x));
-
-            if (recipient is null)
+            switch (digits)
             {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderContestantNotFound(
-                            BuildActionUrl(baseUrl, "contestant-code"),
-                            recordingBaseUrl)));
+                case "1":
+                    session.DonationType =
+                        DonationType.DonateToAllPerDay;
+
+                    break;
+
+                case "2":
+                    session.DonationType =
+                        DonationType.DonateToAllSameAmount;
+
+                    break;
+
+                default:
+                    return Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            currentActionUrl));
+            }
+
+            session.CurrentStep = "donation-amount";
+            session.DonationAmount = null;
+
+            _sessionStore.Update(session);
+
+            return Xml(
+                _menuRenderer.RenderEnterDonationAmount(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "donation-amount"),
+                    recordingBaseUrl));
+        }
+
+        private IActionResult HandleDonationAmount(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
+        {
+            var donationActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "donation-amount");
+
+            if (session.DonationType is null or
+                DonationType.Unknown)
+            {
+                _logger.LogWarning(
+                    "Donation amount requested without a donation type. " +
+                    "CallSid={CallSid}",
+                    session.CallSid);
+
+                session.CurrentStep = "sponsor-all";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderSponsorAllMenu(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            "sponsor-all"),
+                        recordingBaseUrl));
             }
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderContestantDonation(
-                            recipient,
-                            BuildActionUrl(
-                                baseUrl,
-                                "pledge-amount",
-                                recipient.Id),
-                            recordingBaseUrl)));
+                session.CurrentStep = "donation-amount";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterDonationAmount(
+                        donationActionUrl,
+                        recordingBaseUrl));
             }
 
-            if (!decimal.TryParse(digits, out var pledgeAmount) ||
-                pledgeAmount <= 0)
+            if (!TryParseDonationAmount(
+                    digits,
+                    out var donationAmount))
             {
-                return Task.FromResult<IActionResult>(
-                    Xml(
-                        _menuRenderer.RenderInvalidOption(
-                            BuildActionUrl(
-                                baseUrl,
-                                "pledge-amount",
-                                recipient.Id),
-                            recordingBaseUrl)));
+                return Xml(
+                    _menuRenderer.RenderInvalidDonationAmount(
+                        donationActionUrl,
+                        recordingBaseUrl));
             }
 
-            /*
-             * Current testing endpoint:
-             * confirms the entered pledge amount using TTS.
-             *
-             * TODO (PRODUCTION):
-             * Continue to the Cardknox/Sola payment collection step.
-             */
-            return Task.FromResult<IActionResult>(
-                Xml(
-                    _menuRenderer.RenderPledgeConfirmation(
-                        recipient,
-                        pledgeAmount,
-                        BuildActionUrl(baseUrl, "main"),
-                        recordingBaseUrl)));
+            if (donationAmount < MinimumDonationAmount ||
+                donationAmount > MaximumTestDonationAmount)
+            {
+                return Xml(
+                    _menuRenderer.RenderInvalidDonationAmount(
+                        donationActionUrl,
+                        recordingBaseUrl));
+            }
+
+            session.DonationAmount = donationAmount;
+            session.CurrentStep = "confirm-donation";
+
+            _sessionStore.Update(session);
+
+            return Xml(
+                _menuRenderer.RenderDonationConfirmation(
+                    donationAmount,
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "confirm-donation"),
+                    recordingBaseUrl));
+        }
+
+        private string GetApplicationBaseUrl()
+        {
+            // X-Forwarded headers are important when running through
+            // Cloudflare Tunnel, ngrok, Render, Azure, or another proxy.
+            var forwardedProtocol =
+                Request.Headers["X-Forwarded-Proto"]
+                    .FirstOrDefault();
+
+            var forwardedHost =
+                Request.Headers["X-Forwarded-Host"]
+                    .FirstOrDefault();
+
+            var scheme = string.IsNullOrWhiteSpace(
+                forwardedProtocol)
+                ? Request.Scheme
+                : forwardedProtocol;
+
+            var host = string.IsNullOrWhiteSpace(
+                forwardedHost)
+                ? Request.Host.Value
+                : forwardedHost;
+
+            return $"{scheme}://{host}".TrimEnd('/');
+        }
+
+        private static bool TryParseDonationAmount(
+            string digits,
+            out decimal amount)
+        {
+            amount = 0;
+
+            var cleanedDigits = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
+
+            if (string.IsNullOrWhiteSpace(cleanedDigits))
+            {
+                return false;
+            }
+
+            return decimal.TryParse(
+                cleanedDigits,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out amount);
+        }
+
+        private static string BuildActionUrl(
+            string applicationBaseUrl,
+            string step)
+        {
+            return
+                $"{applicationBaseUrl.TrimEnd('/')}" +
+                $"/api/ivr/handle-call" +
+                $"?step={Uri.EscapeDataString(step)}";
+        }
+
+        private static string NormalizeStep(string? step)
+        {
+            return string.IsNullOrWhiteSpace(step)
+                ? "main"
+                : step.Trim().ToLowerInvariant();
+        }
+
+        private static string? NormalizeDigits(string? digits)
+        {
+            return string.IsNullOrWhiteSpace(digits)
+                ? null
+                : digits.Trim();
         }
 
         private ContentResult Xml(VoiceResponse response)
@@ -457,79 +558,6 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             return Content(
                 response.ToString(),
                 "application/xml");
-        }
-
-        private IActionResult RedirectToStep(
-            string baseUrl,
-            string step)
-        {
-            var response = new VoiceResponse();
-
-            response.Redirect(
-                new Uri(
-                    BuildActionUrl(baseUrl, step),
-                    UriKind.Absolute),
-                method: "POST");
-
-            return Xml(response);
-        }
-
-        private static string BuildActionUrl(
-            string baseUrl,
-            string step,
-            Guid? recipientId = null)
-        {
-            var url =
-                $"{baseUrl.TrimEnd('/')}" +
-                "/api/ivr/handle-call" +
-                $"?step={Uri.EscapeDataString(step)}";
-
-            if (recipientId.HasValue)
-            {
-                url += $"&recipientId={recipientId.Value}";
-            }
-
-            return url;
-        }
-
-        private static string NormalizeStep(string? step)
-        {
-            if (string.IsNullOrWhiteSpace(step) ||
-                step.Equals(
-                    "string",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return "main";
-            }
-
-            return step.Trim().ToLowerInvariant();
-        }
-
-        private static string? NormalizeDigits(string? digits)
-        {
-            if (string.IsNullOrWhiteSpace(digits) ||
-                digits.Equals(
-                    "string",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            var numericDigits = new string(
-                digits.Where(char.IsDigit).ToArray());
-
-            return string.IsNullOrWhiteSpace(numericDigits)
-                ? null
-                : numericDigits;
-        }
-
-        private static bool IsRecipientActive(Recipient recipient)
-        {
-            var today = DateTime.UtcNow.Date;
-
-            return recipient.StartDate.Date <= today &&
-                   (!recipient.EndDate.HasValue ||
-                    recipient.EndDate.Value.Date >= today);
         }
     }
 }
