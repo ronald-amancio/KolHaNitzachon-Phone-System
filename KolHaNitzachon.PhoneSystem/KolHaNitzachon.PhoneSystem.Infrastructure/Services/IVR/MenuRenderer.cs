@@ -117,6 +117,83 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
+        public VoiceResponse RenderEnterCardNumber(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            var gather = new Gather(
+                action: CreateAbsoluteUri(actionUrl),
+                method: "POST",
+                timeout: 15,
+                finishOnKey: "#");
+
+            gather.Say(
+                "Please enter your card number, " +
+                "followed by the pound key.");
+
+            response.Append(gather);
+
+            // Repeat the card-number prompt when no digits are entered.
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
+        public VoiceResponse RenderInvalidCardNumber(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            response.Say(
+                "The card number entered was not valid. " +
+                "Please try again.");
+
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
+        public VoiceResponse RenderEnterExpiryDate(
+    string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            var gather = new Gather(
+                action: CreateAbsoluteUri(actionUrl),
+                method: "POST",
+                numDigits: 4,
+                timeout: 10);
+
+            gather.Say(
+                "Please enter your card expiration date. " +
+                "Use two digits for the month and two digits for the year.");
+
+            response.Append(gather);
+
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
+        public VoiceResponse RenderInvalidExpiryDate(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            response.Say(
+                "The expiration date entered was not valid. Please try again.");
+
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
         public VoiceResponse RenderSponsorAllMenu(string actionUrl, string recordingBaseUrl)
         {
             var response = new VoiceResponse();
@@ -134,9 +211,7 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
-        public VoiceResponse RenderEnterDonationAmount(
-            string actionUrl,
-            string recordingBaseUrl)
+        public VoiceResponse RenderEnterDonationAmount(string actionUrl, string recordingBaseUrl)
         {
             var response = new VoiceResponse();
 
