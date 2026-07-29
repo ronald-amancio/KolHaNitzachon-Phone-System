@@ -1,3 +1,4 @@
+using Azure.Storage.Blobs;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Application.Models;
@@ -20,14 +21,18 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         private readonly ILogger<IVRFlowController> _logger;
         private readonly IIvrCallSessionStore _sessionStore;
 
+        private readonly IConfiguration _configuration;
+
         public IVRFlowController(
             IMenuRenderer menuRenderer,
             IIvrCallSessionStore sessionStore,
-            ILogger<IVRFlowController> logger)
+            ILogger<IVRFlowController> logger,
+            IConfiguration configuration)
         {
             _menuRenderer = menuRenderer;
             _sessionStore = sessionStore;
             _logger = logger;
+            _configuration = configuration; 
         }
 
         [HttpPost("handle-call")]
@@ -59,12 +64,6 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
                 var recordingBaseUrl =
                     $"{applicationBaseUrl}/audio";
-
-                //var safeDigitsForLog = IsPaymentStep(step)
-                //        ? digits is null
-                //            ? "none"
-                //            : "[REDACTED]"
-                //        : digits ?? "none";
 
                 var safeDigitsForLog = IsPaymentStep(step)
                     ? string.IsNullOrWhiteSpace(digits)
@@ -524,11 +523,36 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     recordingBaseUrl));
         }
 
-        private IActionResult HandleMainMenu(
-    IvrCallSession session,
-    string? digits,
-    string applicationBaseUrl,
-    string recordingBaseUrl)
+        [HttpGet("debug/blob-storage")]
+        public async Task<IActionResult> TestBlobStorage()
+        {
+            try
+            {
+                var blobServiceClient = new BlobServiceClient(
+                    _configuration.GetConnectionString("AzureBlobStorage"));
+
+                var containerClient =
+                    blobServiceClient.GetBlobContainerClient("ivrrecordings");
+
+                var exists =
+                    await containerClient.ExistsAsync();
+
+                return Ok(new
+                {
+                    Container = "ivrrecordings",
+                    Exists = exists.Value
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new
+                {
+                    Error = ex.Message
+                });
+            }
+        }
+
+        private IActionResult HandleMainMenu(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
         {
             var actionUrl = BuildActionUrl(
                 applicationBaseUrl,
