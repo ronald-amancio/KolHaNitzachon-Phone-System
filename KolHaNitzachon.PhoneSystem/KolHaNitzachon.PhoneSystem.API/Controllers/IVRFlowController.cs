@@ -31,14 +31,12 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         }
 
         [HttpPost("handle-call")]
-        [Consumes(
-    "application/x-www-form-urlencoded",
-    "multipart/form-data")]
+        [Consumes("application/x-www-form-urlencoded", "multipart/form-data")]
         public IActionResult HandleCall(
-    [FromQuery] string? step,
-    [FromForm(Name = "CallSid")] string? callSid,
-    [FromForm(Name = "From")] string? from,
-    [FromForm(Name = "Digits")] string? digits)
+            [FromQuery] string? step,
+            [FromForm(Name = "CallSid")] string? callSid,
+            [FromForm(Name = "From")] string? from,
+            [FromForm(Name = "Digits")] string? digits)
         {
             try
             {
@@ -62,6 +60,18 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 var recordingBaseUrl =
                     $"{applicationBaseUrl}/audio";
 
+                //var safeDigitsForLog = IsPaymentStep(step)
+                //        ? digits is null
+                //            ? "none"
+                //            : "[REDACTED]"
+                //        : digits ?? "none";
+
+                var safeDigitsForLog = IsPaymentStep(step)
+                    ? string.IsNullOrWhiteSpace(digits)
+                        ? "none"
+                        : "[REDACTED]"
+                    : digits ?? "none";
+
                 _logger.LogInformation(
                     "IVR request. Step={Step}, CallSid={CallSid}, " +
                     "From={From}, Digits={Digits}, " +
@@ -70,7 +80,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     step,
                     effectiveCallSid,
                     from ?? "none",
-                    digits ?? "none",
+                    safeDigitsForLog,
                     session.DonationType,
                     session.DonationAmount);
 
@@ -99,6 +109,16 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         digits,
                         applicationBaseUrl,
                         recordingBaseUrl),
+
+                    "payment-card-number" => HandlePaymentCardNumber(
+                        session,
+                        digits,
+                        applicationBaseUrl),
+
+                    "payment-expiry" => HandlePaymentExpiry(
+                        session,
+                        digits,
+                        applicationBaseUrl),
 
                     "end-call" => EndCall(
                         session,
@@ -161,6 +181,8 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     session.RecipientId,
                     session.RecipientCode,
                     session.CurrentStep,
+                    MaskedCardNumber = MaskCardNumber(session.CardNumber),
+                    HasExpiryDate = !string.IsNullOrWhiteSpace(session.ExpiryMMYY),
                     session.CreatedAtUtc,
                     session.LastUpdatedAtUtc,
                     session.ExpiresAtUtc
@@ -177,6 +199,201 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
             // Only a fallback for Swagger or local manual testing.
             return $"LOCAL-{Guid.NewGuid():N}";
+        }
+
+        private static bool IsPaymentStep(string step)
+        {
+            return step.StartsWith(
+                "payment-",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? MaskCardNumber(string? cardNumber)
+        {
+            if (string.IsNullOrWhiteSpace(cardNumber))
+            {
+                return null;
+            }
+
+            var lastFour = cardNumber.Length <= 4
+                ? cardNumber
+                : cardNumber[^4..];
+
+            return $"**** **** **** {lastFour}";
+        }
+
+        private static bool IsValidCardNumberLength(string cardNumber)
+        {
+            return cardNumber.Length is >= 13 and <= 19;
+        }
+
+        //private static bool IsPaymentStep(string step)
+        //{
+        //    return step.StartsWith(
+        //        "payment-",
+        //        StringComparison.OrdinalIgnoreCase);
+        //}
+
+        private static bool IsValidExpiryDate(string expiryMMYY)
+        {
+            if (expiryMMYY.Length != 4)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(expiryMMYY[..2], out var month))
+            {
+                return false;
+            }
+
+            if (!int.TryParse(expiryMMYY[2..], out var twoDigitYear))
+            {
+                return false;
+            }
+
+            if (month is < 1 or > 12)
+            {
+                return false;
+            }
+
+            var currentDate = DateTime.UtcNow;
+            var currentTwoDigitYear = currentDate.Year % 100;
+
+            if (twoDigitYear < currentTwoDigitYear)
+            {
+                return false;
+            }
+
+            if (twoDigitYear == currentTwoDigitYear &&
+                month < currentDate.Month)
+            {
+                return false;
+            }
+
+            if (twoDigitYear > currentTwoDigitYear + 20)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private IActionResult HandlePaymentCardNumber(IvrCallSession session, string? digits, string applicationBaseUrl)
+        {
+            var cardNumberActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "payment-card-number");
+
+            if (string.IsNullOrWhiteSpace(digits))
+            {
+                session.CurrentStep = "payment-card-number";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCardNumber(
+                        cardNumberActionUrl));
+            }
+
+            var cleanedCardNumber = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
+
+            if (!IsValidCardNumberLength(cleanedCardNumber))
+            {
+                session.CardNumber = null;
+                session.CurrentStep = "payment-card-number";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderInvalidCardNumber(
+                        cardNumberActionUrl));
+            }
+
+            session.CardNumber = cleanedCardNumber;
+            session.ExpiryMMYY = null;
+            session.CurrentStep = "payment-expiry";
+
+            _sessionStore.Update(session);
+
+            return Xml(
+                _menuRenderer.RenderEnterExpiryDate(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "payment-expiry")));
+        }
+
+        private IActionResult HandlePaymentExpiry(
+    IvrCallSession session,
+    string? digits,
+    string applicationBaseUrl)
+        {
+            var expiryActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "payment-expiry");
+
+            // The caller must enter a card number before entering expiry.
+            if (string.IsNullOrWhiteSpace(session.CardNumber))
+            {
+                session.ExpiryMMYY = null;
+                session.CurrentStep = "payment-card-number";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCardNumber(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            "payment-card-number")));
+            }
+
+            // No digits means the prompt was opened directly
+            // or the caller did not enter anything.
+            if (string.IsNullOrWhiteSpace(digits))
+            {
+                session.CurrentStep = "payment-expiry";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterExpiryDate(
+                        expiryActionUrl));
+            }
+
+            var cleanedExpiry = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
+
+            if (!IsValidExpiryDate(cleanedExpiry))
+            {
+                session.ExpiryMMYY = null;
+                session.CurrentStep = "payment-expiry";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderInvalidExpiryDate(
+                        expiryActionUrl));
+            }
+
+            session.ExpiryMMYY = cleanedExpiry;
+            session.CurrentStep = "payment-cvv";
+
+            _sessionStore.Update(session);
+
+            // Temporary stopping point until the CVV step is implemented.
+            var response = new VoiceResponse();
+
+            response.Say(
+                "Your card expiration date was received. " +
+                "The security code step will be added next.");
+
+            response.Hangup();
+
+            return Xml(response);
         }
 
         private IActionResult HandleDonationConfirmation(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
@@ -216,19 +433,18 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             switch (digits)
             {
                 case "1":
-                    session.CurrentStep = "payment";
+                    session.CurrentStep = "payment-card-number";
                     _sessionStore.Update(session);
-
                     return Xml(
-                        _menuRenderer.RenderPreparingPayment(
-                            recordingBaseUrl));
+                        _menuRenderer.RenderEnterCardNumber(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                "payment-card-number")));
 
                 case "2":
                     session.DonationAmount = null;
                     session.CurrentStep = "donation-amount";
-
                     _sessionStore.Update(session);
-
                     return Xml(
                         _menuRenderer.RenderEnterDonationAmount(
                             BuildActionUrl(
@@ -238,7 +454,6 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
                 case "9":
                     ResetSessionForMainMenu(session);
-
                     return Xml(
                         _menuRenderer.RenderMainMenu(
                             BuildActionUrl(
@@ -260,6 +475,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             session.DonationAmount = null;
             session.RecipientId = null;
             session.RecipientCode = null;
+
+            session.CardNumber = null;
+            session.ExpiryMMYY = null;
+            session.Cvv = null;
+            session.BillingZip = null;
 
             _sessionStore.Update(session);
         }
@@ -348,6 +568,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             session.DonationAmount = null;
             session.RecipientId = null;
             session.RecipientCode = null;
+
+            session.CardNumber = null;
+            session.ExpiryMMYY = null;
+            session.Cvv = null;
+            session.BillingZip = null;
 
             _sessionStore.Update(session);
 

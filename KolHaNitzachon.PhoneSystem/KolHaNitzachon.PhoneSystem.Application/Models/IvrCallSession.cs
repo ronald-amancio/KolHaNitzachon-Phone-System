@@ -20,6 +20,16 @@ namespace KolHaNitzachon.PhoneSystem.Application.Models
 
         public decimal? DonationAmount { get; set; }
 
+        // Payment Information
+        public string? CardNumber { get; set; }
+
+        public string? ExpiryMMYY { get; set; }
+
+        public string? Cvv { get; set; }
+
+        public string? BillingZip { get; set; }
+
+
         public string CurrentStep { get; set; } = "main";
 
         public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
@@ -28,5 +38,14 @@ namespace KolHaNitzachon.PhoneSystem.Application.Models
 
         public DateTime ExpiresAtUtc { get; set; } =
             DateTime.UtcNow.AddMinutes(30);
+
+
+       
+
+        public string? CustomerId { get; set; }
+
+        public string? PaymentMethodId { get; set; }
+
+        public string? PaymentIntentId { get; set; }
     }
 }

@@ -21,23 +21,9 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR
         VoiceResponse RenderPaymentFailed(string mainMenuUrl, string recordingBaseUrl);
         VoiceResponse RenderInvalidOption(string actionUrl);
         VoiceResponse RenderPreparingPayment(string recordingBaseUrl);
-        //public VoiceResponse RenderPreparingPayment(string recordingBaseUrl)
-        //{
-        //    var response = new VoiceResponse();
-
-        //    response.Say(
-        //        "Your donation amount has been confirmed. " +
-        //        "You will now be transferred to the secure " +
-        //        "payment step.");
-
-        //    /*
-        //     * Do not play charge-successful.mp3 here.
-        //     * No payment has been processed yet.
-        //     */
-
-        //    response.Hangup();
-
-        //    return response;
-        //}
+        VoiceResponse RenderEnterCardNumber(string actionUrl);
+        VoiceResponse RenderInvalidCardNumber(string actionUrl);
+        VoiceResponse RenderEnterExpiryDate(string actionUrl);
+        VoiceResponse RenderInvalidExpiryDate(string actionUrl);
     }
 }
