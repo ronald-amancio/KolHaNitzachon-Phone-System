@@ -1,6 +1,5 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Azure.Storage.Sas;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -10,14 +9,28 @@ namespace Infrastructure.External;
 public class BlobStorageService : IBlobStorageService
 {
     private readonly string _connectionString;
-    private readonly string _containerName = "feedback-recordings";
+    //private readonly string _containerName = "feedback-recordings";
+    private readonly string _containerName;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BlobStorageService> _logger;
 
-    public BlobStorageService(IConfiguration configuration, IHttpClientFactory httpClientFactory, ILogger<BlobStorageService> logger)
+    public BlobStorageService(
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory,
+        ILogger<BlobStorageService> logger)
     {
-        _connectionString = configuration.GetConnectionString("AzureBlobStorage")
-            ?? throw new ArgumentNullException("AzureBlobStorage connection string is missing in appsettings.json");
+        _connectionString =
+            configuration.GetConnectionString(
+                "AzureBlobStorage")
+            ?? throw new InvalidOperationException(
+                "Azure Blob Storage connection string is missing.");
+
+        _containerName =
+            configuration[
+                "AzureBlobStorage:ContainerName"]
+            ?? throw new InvalidOperationException(
+                "Azure Blob Storage container name is missing.");
+
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -33,7 +46,7 @@ public class BlobStorageService : IBlobStorageService
             var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
 
             // Ensures container is created with private access (SAS required)
-            await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
+            //await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
 
             // Fetch stream from SignalWire
             using var client = _httpClientFactory.CreateClient();
@@ -44,8 +57,11 @@ public class BlobStorageService : IBlobStorageService
             // Set headers so SignalWire recognizes it as audio during playback
             var uploadOptions = new BlobUploadOptions
             {
-                HttpHeaders = new BlobHttpHeaders { ContentType = "audio/wav" }
-            };
+                HttpHeaders = new BlobHttpHeaders
+                {
+                    ContentType = "audio/mpeg" //"audio/wav" 
+                }
+            }; 
 
             await blobClient.UploadAsync(audioStream, uploadOptions);
 
@@ -85,30 +101,56 @@ public class BlobStorageService : IBlobStorageService
     /// <summary>
     /// Generates a time-limited SAS URL that grants SignalWire temporary READ access.
     /// </summary>
+    #region NotInUsed
+    //public string GenerateSasUrl(string blobName)
+    //{
+    //    var blobServiceClient = new BlobServiceClient(_connectionString);
+    //    var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
+    //    var blobClient = containerClient.GetBlobClient(blobName);
+
+    //    if (!blobClient.CanGenerateSasUri)
+    //    {
+    //        _logger.LogError("Storage account key is required to generate SAS for: {BlobName}", blobName);
+    //        throw new InvalidOperationException("Account key not configured for SAS generation.");
+    //    }
+
+    //    // Define SAS permissions and expiry (1 hour is usually sufficient for playback)
+    //    var sasBuilder = new BlobSasBuilder
+    //    {
+    //        BlobContainerName = _containerName,
+    //        BlobName = blobName,
+    //        Resource = "b", // 'b' stands for blob
+    //        ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+    //    };
+
+    //    sasBuilder.SetPermissions(BlobSasPermissions.Read);
+
+    //    Uri sasUri = blobClient.GenerateSasUri(sasBuilder);
+    //    return sasUri.ToString();
+    //}
+    #endregion
+
     public string GenerateSasUrl(string blobName)
     {
-        var blobServiceClient = new BlobServiceClient(_connectionString);
-        var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
-        var blobClient = containerClient.GetBlobClient(blobName);
-
-        if (!blobClient.CanGenerateSasUri)
+        if (string.IsNullOrWhiteSpace(blobName))
         {
-            _logger.LogError("Storage account key is required to generate SAS for: {BlobName}", blobName);
-            throw new InvalidOperationException("Account key not configured for SAS generation.");
+            throw new ArgumentException(
+                "Blob name is required.",
+                nameof(blobName));
         }
 
-        // Define SAS permissions and expiry (1 hour is usually sufficient for playback)
-        var sasBuilder = new BlobSasBuilder
-        {
-            BlobContainerName = _containerName,
-            BlobName = blobName,
-            Resource = "b", // 'b' stands for blob
-            ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
-        };
+        var blobServiceClient =
+            new BlobServiceClient(
+                _connectionString);
 
-        sasBuilder.SetPermissions(BlobSasPermissions.Read);
+        var containerClient =
+            blobServiceClient.GetBlobContainerClient(
+                _containerName);
 
-        Uri sasUri = blobClient.GenerateSasUri(sasBuilder);
-        return sasUri.ToString();
+        var blobClient =
+            containerClient.GetBlobClient(
+                blobName);
+
+        return blobClient.Uri.ToString();
     }
 }
