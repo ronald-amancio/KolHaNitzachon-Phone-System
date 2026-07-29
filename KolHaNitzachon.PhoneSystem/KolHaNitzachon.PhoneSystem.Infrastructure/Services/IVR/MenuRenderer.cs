@@ -194,6 +194,45 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
+        public VoiceResponse RenderEnterCvv(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            var gather = new Gather(
+                action: CreateAbsoluteUri(actionUrl),
+                method: "POST",
+                timeout: 10,
+                finishOnKey: "#");
+
+            gather.Say(
+                "Please enter the three or four digit " +
+                "security code from your card, " +
+                "followed by the pound key.");
+
+            response.Append(gather);
+
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
+        public VoiceResponse RenderInvalidCvv(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            response.Say(
+                "The security code entered was not valid. " +
+                "Please try again.");
+
+            response.Redirect(
+                CreateAbsoluteUri(actionUrl),
+                method: "POST");
+
+            return response;
+        }
+
         public VoiceResponse RenderSponsorAllMenu(string actionUrl, string recordingBaseUrl)
         {
             var response = new VoiceResponse();
