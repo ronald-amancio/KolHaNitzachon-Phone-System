@@ -6,6 +6,7 @@ using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
 using Twilio.TwiML;
+using KolHaNitzachon.PhoneSystem.Shared.Constants;
 
 namespace KolHaNitzachon.PhoneSystem.API.Controllers
 {
@@ -85,46 +86,46 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
                 return step switch
                 {
-                    "main" => HandleMainMenu(
+                    IvrSteps.Main => HandleMainMenu(
                         session,
                         digits,
                         applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "sponsor-all" => HandleSponsorAll(
+                    IvrSteps.SponsorAll => HandleSponsorAll(
                         session,
                         digits,
                         applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "donation-amount" => HandleDonationAmount(
+                    IvrSteps.DonationAmount => HandleDonationAmount(
                         session,
                         digits,
                         applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "confirm-donation" => HandleDonationConfirmation(
+                    IvrSteps.ConfirmDonation => HandleDonationConfirmation(
                         session,
                         digits,
                         applicationBaseUrl,
                         recordingBaseUrl),
 
-                    "payment-card-number" => HandlePaymentCardNumber(
+                    IvrSteps.PaymentCardNumber => HandlePaymentCardNumber(
                         session,
                         digits,
                         applicationBaseUrl),
 
-                    "payment-expiry" => HandlePaymentExpiry(
+                    IvrSteps.PaymentExpiry => HandlePaymentExpiry(
                         session,
                         digits,
                         applicationBaseUrl),
 
-                    "payment-cvv" => HandlePaymentCvv(
+                    IvrSteps.PaymentCvv => HandlePaymentCvv(
                         session,
                         digits,
                         applicationBaseUrl),
 
-                    "end-call" => EndCall(
+                    IvrSteps.EndCall => EndCall(
                         session,
                         recordingBaseUrl),
 
@@ -132,8 +133,60 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         _menuRenderer.RenderInvalidOption(
                             BuildActionUrl(
                                 applicationBaseUrl,
-                                "main")))
+                                IvrSteps.Main)))
                 };
+
+                //return step switch
+                //{
+                //    "main" => HandleMainMenu(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl,
+                //        recordingBaseUrl),
+
+                //    "sponsor-all" => HandleSponsorAll(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl,
+                //        recordingBaseUrl),
+
+                //    "donation-amount" => HandleDonationAmount(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl,
+                //        recordingBaseUrl),
+
+                //    "confirm-donation" => HandleDonationConfirmation(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl,
+                //        recordingBaseUrl),
+
+                //    "payment-card-number" => HandlePaymentCardNumber(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl),
+
+                //    "payment-expiry" => HandlePaymentExpiry(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl),
+
+                //    "payment-cvv" => HandlePaymentCvv(
+                //        session,
+                //        digits,
+                //        applicationBaseUrl),
+
+                //    "end-call" => EndCall(
+                //        session,
+                //        recordingBaseUrl),
+
+                //    _ => Xml(
+                //        _menuRenderer.RenderInvalidOption(
+                //            BuildActionUrl(
+                //                applicationBaseUrl,
+                //                "main")))
+                //};
             }
             catch (Exception exception)
             {
@@ -293,11 +346,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             var cardNumberActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "payment-card-number");
+                IvrSteps.PaymentCardNumber);
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "payment-card-number";
+                session.CurrentStep = IvrSteps.PaymentCardNumber;
 
                 _sessionStore.Update(session);
 
@@ -314,7 +367,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             if (!IsValidCardNumberLength(cleanedCardNumber))
             {
                 session.CardNumber = null;
-                session.CurrentStep = "payment-card-number";
+                session.CurrentStep = IvrSteps.PaymentCardNumber;
 
                 _sessionStore.Update(session);
 
@@ -325,7 +378,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
             session.CardNumber = cleanedCardNumber;
             session.ExpiryMMYY = null;
-            session.CurrentStep = "payment-expiry";
+            session.CurrentStep = IvrSteps.PaymentExpiry;
 
             _sessionStore.Update(session);
 
@@ -333,20 +386,20 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 _menuRenderer.RenderEnterExpiryDate(
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "payment-expiry")));
+                        IvrSteps.PaymentExpiry)));
         }
 
         private IActionResult HandlePaymentExpiry(IvrCallSession session, string? digits, string applicationBaseUrl)
         {
             var expiryActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "payment-expiry");
+                IvrSteps.PaymentExpiry);
 
             // The caller must enter a card number before entering expiry.
             if (string.IsNullOrWhiteSpace(session.CardNumber))
             {
                 session.ExpiryMMYY = null;
-                session.CurrentStep = "payment-card-number";
+                session.CurrentStep = IvrSteps.PaymentCardNumber;
 
                 _sessionStore.Update(session);
 
@@ -354,14 +407,14 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     _menuRenderer.RenderEnterCardNumber(
                         BuildActionUrl(
                             applicationBaseUrl,
-                            "payment-card-number")));
+                            IvrSteps.PaymentCardNumber)));
             }
 
             // No digits means the prompt was opened directly
             // or the caller did not enter anything.
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "payment-expiry";
+                session.CurrentStep = IvrSteps.PaymentExpiry;
 
                 _sessionStore.Update(session);
 
@@ -378,7 +431,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             if (!IsValidExpiryDate(cleanedExpiry))
             {
                 session.ExpiryMMYY = null;
-                session.CurrentStep = "payment-expiry";
+                session.CurrentStep = IvrSteps.PaymentExpiry;
 
                 _sessionStore.Update(session);
 
@@ -389,7 +442,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
             session.ExpiryMMYY = cleanedExpiry;
             session.Cvv = null;
-            session.CurrentStep = "payment-cvv";
+            session.CurrentStep = IvrSteps.PaymentCvv;
 
             _sessionStore.Update(session);
 
@@ -397,14 +450,14 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 _menuRenderer.RenderEnterCvv(
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "payment-cvv")));
+                        IvrSteps.PaymentCvv)));
         }
 
         private IActionResult HandlePaymentCvv(IvrCallSession session, string? digits, string applicationBaseUrl)
         {
             var cvvActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "payment-cvv");
+                IvrSteps.PaymentCvv);
 
             /*
              * The caller must complete the card-number
@@ -413,7 +466,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             if (string.IsNullOrWhiteSpace(session.CardNumber))
             {
                 session.Cvv = null;
-                session.CurrentStep = "payment-card-number";
+                session.CurrentStep = IvrSteps.PaymentCardNumber;
 
                 _sessionStore.Update(session);
 
@@ -421,13 +474,13 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     _menuRenderer.RenderEnterCardNumber(
                         BuildActionUrl(
                             applicationBaseUrl,
-                            "payment-card-number")));
+                            IvrSteps.PaymentCardNumber)));
             }
 
             if (string.IsNullOrWhiteSpace(session.ExpiryMMYY))
             {
                 session.Cvv = null;
-                session.CurrentStep = "payment-expiry";
+                session.CurrentStep = IvrSteps.PaymentExpiry;
 
                 _sessionStore.Update(session);
 
@@ -435,12 +488,12 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     _menuRenderer.RenderEnterExpiryDate(
                         BuildActionUrl(
                             applicationBaseUrl,
-                            "payment-expiry")));
+                            IvrSteps.PaymentExpiry)));
             }
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "payment-cvv";
+                session.CurrentStep = IvrSteps.PaymentCvv;
 
                 _sessionStore.Update(session);
 
@@ -457,7 +510,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             if (!IsValidCvv(cleanedCvv))
             {
                 session.Cvv = null;
-                session.CurrentStep = "payment-cvv";
+                session.CurrentStep = IvrSteps.PaymentCvv;
 
                 _sessionStore.Update(session);
 
@@ -467,7 +520,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
 
             session.Cvv = cleanedCvv;
-            session.CurrentStep = "payment-zip";
+            session.CurrentStep = IvrSteps.PaymentZip;
 
             _sessionStore.Update(session);
 
@@ -495,7 +548,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     "an amount. CallSid={CallSid}",
                     session.CallSid);
 
-                session.CurrentStep = "donation-amount";
+                session.CurrentStep = IvrSteps.DonationAmount;
 
                 _sessionStore.Update(session);
 
@@ -503,13 +556,13 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     _menuRenderer.RenderEnterDonationAmount(
                         BuildActionUrl(
                             applicationBaseUrl,
-                            "donation-amount"),
+                            IvrSteps.DonationAmount),
                         recordingBaseUrl));
             }
 
             var confirmationActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "confirm-donation");
+                IvrSteps.ConfirmDonation);
 
             if (string.IsNullOrWhiteSpace(digits))
             {
@@ -523,23 +576,23 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             switch (digits)
             {
                 case "1":
-                    session.CurrentStep = "payment-card-number";
+                    session.CurrentStep = IvrSteps.PaymentCardNumber;
                     _sessionStore.Update(session);
                     return Xml(
                         _menuRenderer.RenderEnterCardNumber(
                             BuildActionUrl(
                                 applicationBaseUrl,
-                                "payment-card-number")));
+                                IvrSteps.PaymentCardNumber)));
 
                 case "2":
                     session.DonationAmount = null;
-                    session.CurrentStep = "donation-amount";
+                    session.CurrentStep = IvrSteps.DonationAmount;
                     _sessionStore.Update(session);
                     return Xml(
                         _menuRenderer.RenderEnterDonationAmount(
                             BuildActionUrl(
                                 applicationBaseUrl,
-                                "donation-amount"),
+                                IvrSteps.DonationAmount),
                             recordingBaseUrl));
 
                 case "9":
@@ -548,7 +601,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         _menuRenderer.RenderMainMenu(
                             BuildActionUrl(
                                 applicationBaseUrl,
-                                "main"),
+                                IvrSteps.Main),
                             recordingBaseUrl));
 
                 default:
@@ -560,7 +613,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
         private void ResetSessionForMainMenu(IvrCallSession session)
         {
-            session.CurrentStep = "main";
+            session.CurrentStep = IvrSteps.Main;
             session.DonationType = null;
             session.DonationAmount = null;
             session.RecipientId = null;
@@ -610,7 +663,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 _menuRenderer.RenderPaymentFailed(
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "main"),
+                        IvrSteps.Main),
                     recordingBaseUrl));
         }
 
@@ -647,11 +700,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             var actionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "main");
+                IvrSteps.Main);
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "main";
+                session.CurrentStep = IvrSteps.Main;
 
                 _sessionStore.Update(session);
 
@@ -676,7 +729,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
 
         private IActionResult StartSponsorAllFlow(IvrCallSession session, string applicationBaseUrl, string recordingBaseUrl)
         {
-            session.CurrentStep = "sponsor-all";
+            session.CurrentStep = IvrSteps.SponsorAll;
 
             // Clear values left over if the caller restarted the menu.
             session.DonationType = null;
@@ -695,7 +748,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 _menuRenderer.RenderSponsorAllMenu(
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "sponsor-all"),
+                        IvrSteps.SponsorAll),
                     recordingBaseUrl));
         }
 
@@ -703,11 +756,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             var currentActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "sponsor-all");
+                IvrSteps.SponsorAll);
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "sponsor-all";
+                session.CurrentStep = IvrSteps.SponsorAll;
 
                 _sessionStore.Update(session);
 
@@ -737,7 +790,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                             currentActionUrl));
             }
 
-            session.CurrentStep = "donation-amount";
+            session.CurrentStep = IvrSteps.DonationAmount;
             session.DonationAmount = null;
 
             _sessionStore.Update(session);
@@ -746,7 +799,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 _menuRenderer.RenderEnterDonationAmount(
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "donation-amount"),
+                        IvrSteps.DonationAmount),
                     recordingBaseUrl));
         }
 
@@ -754,7 +807,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             var donationActionUrl = BuildActionUrl(
                 applicationBaseUrl,
-                "donation-amount");
+                IvrSteps.DonationAmount);
 
             if (session.DonationType is null or
                 DonationType.Unknown)
@@ -764,7 +817,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     "CallSid={CallSid}",
                     session.CallSid);
 
-                session.CurrentStep = "sponsor-all";
+                session.CurrentStep = IvrSteps.SponsorAll;
 
                 _sessionStore.Update(session);
 
@@ -772,13 +825,13 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     _menuRenderer.RenderSponsorAllMenu(
                         BuildActionUrl(
                             applicationBaseUrl,
-                            "sponsor-all"),
+                            IvrSteps.SponsorAll),
                         recordingBaseUrl));
             }
 
             if (string.IsNullOrWhiteSpace(digits))
             {
-                session.CurrentStep = "donation-amount";
+                session.CurrentStep = IvrSteps.DonationAmount;
 
                 _sessionStore.Update(session);
 
@@ -808,7 +861,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
 
             session.DonationAmount = donationAmount;
-            session.CurrentStep = "confirm-donation";
+            session.CurrentStep = IvrSteps.ConfirmDonation;
 
             _sessionStore.Update(session);
 
@@ -817,7 +870,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     donationAmount,
                     BuildActionUrl(
                         applicationBaseUrl,
-                        "confirm-donation"),
+                        IvrSteps.ConfirmDonation),
                     recordingBaseUrl));
         }
 
@@ -882,7 +935,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         private static string NormalizeStep(string? step)
         {
             return string.IsNullOrWhiteSpace(step)
-                ? "main"
+                ? IvrSteps.Main
                 : step.Trim().ToLowerInvariant();
         }
 

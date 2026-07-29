@@ -33,6 +33,7 @@
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Application\KolHaNitzachon.PhoneSystem.Application.csproj" />
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Domain\KolHaNitzachon.PhoneSystem.Domain.csproj" />
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Infrastructure\KolHaNitzachon.PhoneSystem.Infrastructure.csproj" />
+    <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Shared\KolHaNitzachon.PhoneSystem.Shared.csproj" />
   </ItemGroup>
 
 </Project>
