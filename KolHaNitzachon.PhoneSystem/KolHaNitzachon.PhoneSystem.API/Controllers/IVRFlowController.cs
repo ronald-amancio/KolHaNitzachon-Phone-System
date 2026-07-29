@@ -119,6 +119,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         digits,
                         applicationBaseUrl),
 
+                    "payment-cvv" => HandlePaymentCvv(
+                        session,
+                        digits,
+                        applicationBaseUrl),
+
                     "end-call" => EndCall(
                         session,
                         recordingBaseUrl),
@@ -182,6 +187,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     session.CurrentStep,
                     MaskedCardNumber = MaskCardNumber(session.CardNumber),
                     HasExpiryDate = !string.IsNullOrWhiteSpace(session.ExpiryMMYY),
+                    HasCvv = !string.IsNullOrWhiteSpace(session.Cvv),
                     session.CreatedAtUtc,
                     session.LastUpdatedAtUtc,
                     session.ExpiresAtUtc
@@ -277,6 +283,12 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             return true;
         }
 
+        private static bool IsValidCvv(string cvv)
+        {
+            return cvv.Length is 3 or 4 &&
+                   cvv.All(char.IsDigit);
+        }
+
         private IActionResult HandlePaymentCardNumber(IvrCallSession session, string? digits, string applicationBaseUrl)
         {
             var cardNumberActionUrl = BuildActionUrl(
@@ -324,10 +336,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         "payment-expiry")));
         }
 
-        private IActionResult HandlePaymentExpiry(
-    IvrCallSession session,
-    string? digits,
-    string applicationBaseUrl)
+        private IActionResult HandlePaymentExpiry(IvrCallSession session, string? digits, string applicationBaseUrl)
         {
             var expiryActionUrl = BuildActionUrl(
                 applicationBaseUrl,
@@ -379,16 +388,98 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
 
             session.ExpiryMMYY = cleanedExpiry;
+            session.Cvv = null;
             session.CurrentStep = "payment-cvv";
 
             _sessionStore.Update(session);
 
-            // Temporary stopping point until the CVV step is implemented.
+            return Xml(
+                _menuRenderer.RenderEnterCvv(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        "payment-cvv")));
+        }
+
+        private IActionResult HandlePaymentCvv(IvrCallSession session, string? digits, string applicationBaseUrl)
+        {
+            var cvvActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                "payment-cvv");
+
+            /*
+             * The caller must complete the card-number
+             * and expiry stages before entering CVV.
+             */
+            if (string.IsNullOrWhiteSpace(session.CardNumber))
+            {
+                session.Cvv = null;
+                session.CurrentStep = "payment-card-number";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCardNumber(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            "payment-card-number")));
+            }
+
+            if (string.IsNullOrWhiteSpace(session.ExpiryMMYY))
+            {
+                session.Cvv = null;
+                session.CurrentStep = "payment-expiry";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterExpiryDate(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            "payment-expiry")));
+            }
+
+            if (string.IsNullOrWhiteSpace(digits))
+            {
+                session.CurrentStep = "payment-cvv";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCvv(
+                        cvvActionUrl));
+            }
+
+            var cleanedCvv = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
+
+            if (!IsValidCvv(cleanedCvv))
+            {
+                session.Cvv = null;
+                session.CurrentStep = "payment-cvv";
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderInvalidCvv(
+                        cvvActionUrl));
+            }
+
+            session.Cvv = cleanedCvv;
+            session.CurrentStep = "payment-zip";
+
+            _sessionStore.Update(session);
+
+            /*
+             * Temporary stopping point until billing ZIP
+             * collection is implemented.
+             */
             var response = new VoiceResponse();
 
             response.Say(
-                "Your card expiration date was received. " +
-                "The security code step will be added next.");
+                "Your card security code was received. " +
+                "The billing postal code step will be added next.");
 
             response.Hangup();
 
