@@ -3,6 +3,7 @@ using Azure.Storage.Blobs.Models;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Azure.Storage.Sas;
 
 namespace Infrastructure.External;
 
@@ -46,7 +47,7 @@ public class BlobStorageService : IBlobStorageService
             var containerClient = blobServiceClient.GetBlobContainerClient(_containerName);
 
             // Ensures container is created with private access (SAS required)
-            //await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
+            await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
 
             // Fetch stream from SignalWire
             using var client = _httpClientFactory.CreateClient();
@@ -130,6 +131,79 @@ public class BlobStorageService : IBlobStorageService
     //}
     #endregion
 
+    #region GenerateSasURLBak
+    //public string GenerateSasUrl(string blobName)
+    //{
+    //    if (string.IsNullOrWhiteSpace(blobName))
+    //    {
+    //        throw new ArgumentException(
+    //            "Blob name is required.",
+    //            nameof(blobName));
+    //    }
+
+    //    var blobServiceClient =
+    //        new BlobServiceClient(
+    //            _connectionString);
+
+    //    var containerClient =
+    //        blobServiceClient.GetBlobContainerClient(
+    //            _containerName);
+
+    //    var blobClient =
+    //        containerClient.GetBlobClient(
+    //            blobName);
+
+    //    return blobClient.Uri.ToString();
+    //}
+    #endregion
+
+    //public string GenerateSasUrl(string blobName)
+    //{
+    //    if (string.IsNullOrWhiteSpace(blobName))
+    //    {
+    //        throw new ArgumentException(
+    //            "Blob name is required.",
+    //            nameof(blobName));
+    //    }
+
+    //    var blobServiceClient =
+    //        new BlobServiceClient(_connectionString);
+
+    //    var containerClient =
+    //        blobServiceClient.GetBlobContainerClient(
+    //            _containerName);
+
+    //    var blobClient =
+    //        containerClient.GetBlobClient(blobName);
+
+    //    if (!blobClient.CanGenerateSasUri)
+    //    {
+    //        _logger.LogError(
+    //            "Unable to generate SAS URL for blob {BlobName}. " +
+    //            "The configured connection string may not contain an account key.",
+    //            blobName);
+
+    //        throw new InvalidOperationException(
+    //            "The configured Azure Storage credentials cannot generate SAS URLs.");
+    //    }
+
+    //    var sasBuilder = new BlobSasBuilder
+    //    {
+    //        BlobContainerName = _containerName,
+    //        BlobName = blobName,
+    //        Resource = "b",
+    //        StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
+    //        ExpiresOn = DateTimeOffset.UtcNow.AddHours(4)
+    //    };
+
+    //    sasBuilder.SetPermissions(
+    //        BlobSasPermissions.Read);
+
+    //    return blobClient
+    //        .GenerateSasUri(sasBuilder)
+    //        .ToString();
+    //}
+
     public string GenerateSasUrl(string blobName)
     {
         if (string.IsNullOrWhiteSpace(blobName))
@@ -140,17 +214,52 @@ public class BlobStorageService : IBlobStorageService
         }
 
         var blobServiceClient =
-            new BlobServiceClient(
-                _connectionString);
+            new BlobServiceClient(_connectionString);
 
         var containerClient =
             blobServiceClient.GetBlobContainerClient(
                 _containerName);
 
         var blobClient =
-            containerClient.GetBlobClient(
-                blobName);
+            containerClient.GetBlobClient(blobName);
 
-        return blobClient.Uri.ToString();
+        // Account-key connection string:
+        // generate a new short-lived SAS.
+        if (blobClient.CanGenerateSasUri)
+        {
+            var sasBuilder = new BlobSasBuilder
+            {
+                BlobContainerName = _containerName,
+                BlobName = blobName,
+                Resource = "b",
+                StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
+                ExpiresOn = DateTimeOffset.UtcNow.AddHours(4)
+            };
+
+            sasBuilder.SetPermissions(
+                BlobSasPermissions.Read);
+
+            return blobClient
+                .GenerateSasUri(sasBuilder)
+                .ToString();
+        }
+
+        // Existing SAS connection string:
+        // BlobClient.Uri already carries the configured SAS credential.
+        var existingSasUrl =
+            blobClient.Uri.ToString();
+
+        if (!existingSasUrl.Contains(
+                "sig=",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogError(
+                "The Azure Blob client has neither an account key nor an existing SAS credential.");
+
+            throw new InvalidOperationException(
+                "Azure Blob credentials cannot provide a playback URL.");
+        }
+
+        return existingSasUrl;
     }
 }

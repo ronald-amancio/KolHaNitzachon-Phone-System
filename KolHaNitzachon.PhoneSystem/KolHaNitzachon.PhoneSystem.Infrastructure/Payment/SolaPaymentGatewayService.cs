@@ -36,7 +36,12 @@ public class SolaPaymentGatewayService : IPaymentGatewayService
         _http = httpClient;
         _logger = logger;
         var section = configuration.GetSection("Sola");
-        _apiKey = section["ApiKey"] ?? throw new InvalidOperationException("Sola ApiKey is not configured.");
+        //_apiKey = section["ApiKey"] ?? throw new InvalidOperationException("Sola ApiKey is not configured.");
+        _apiKey = section["ApiKey"] ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_apiKey))
+        {
+            throw new InvalidOperationException("Sola ApiKey is not configured.");
+        }
         _softwareName = section["SoftwareName"] ?? "WixSystem";
         _softwareVersion = section["SoftwareVersion"] ?? "1.0";
         _recurringApiMinorVersion = section["RecurringApiMinorVersion"] ?? "2.1";

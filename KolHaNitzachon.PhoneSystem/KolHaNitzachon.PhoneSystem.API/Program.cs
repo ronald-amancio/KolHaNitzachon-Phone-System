@@ -1,3 +1,4 @@
+using KolHaNitzachon.PhoneSystem.Application.Services.Payment;
 using Infrastructure.External;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
@@ -19,6 +20,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
+//var solaApiKey = builder.Configuration["Sola:ApiKey"] ?? string.Empty;
+
+//Console.WriteLine(
+//    string.IsNullOrWhiteSpace(solaApiKey)
+//        ? "Sola API key: NOT LOADED"
+//        : "Sola API key: LOADED");
+
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -29,18 +37,37 @@ builder.Services.AddDbContext<PhoneSystemDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddHttpClient<IPaymentGatewayService, SolaPaymentGatewayService>();
+builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IRecipientRepository, RecipientRepository>();
 
 //builder.Services.AddHttpContextAccessor();
-//builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
 builder.Services.Configure<SignalWireSettings>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.Configure<SignalWireOptions>(builder.Configuration.GetSection("SignalWire"));
 builder.Services.AddScoped<IVoiceService, SignalWireVoiceService>();
-//builder.Services.AddSingleton<IRecipientRepository, InMemoryRecipientRepository>();
 
 builder.Services.Configure<LocalRecordingStorageOptions>(builder.Configuration.GetSection(LocalRecordingStorageOptions.SectionName));
-builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
+//builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
+var recordingStorageProvider = builder.Configuration["RecordingStorage:Provider"] ?? "Local";
+if (recordingStorageProvider.Equals("AzureBlob", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddScoped<IRecordingStorage, AzureRecordingStorageService>();
+}
+else
+{
+    builder.Services.AddScoped<IRecordingStorage, LocalRecordingStorageService>();
+}
+
+var audioPromptProvider = builder.Configuration["AudioPrompts:Provider"] ?? "Local";
+if (audioPromptProvider.Equals("AzureBlob", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddScoped<IAudioPromptUrlProvider, AzureBlobAudioPromptUrlProvider>();
+}
+else
+{
+    builder.Services.AddScoped<IAudioPromptUrlProvider, LocalAudioPromptUrlProvider>();
+}
+
 
 builder.Services.AddSingleton<INumberAudioComposer, NumberAudioComposer>();
 builder.Services.AddSingleton<IIvrCallSessionStore, InMemoryIvrCallSessionStore>();
