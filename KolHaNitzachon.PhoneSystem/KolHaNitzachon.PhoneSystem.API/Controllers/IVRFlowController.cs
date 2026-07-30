@@ -1,12 +1,12 @@
+using KolHaNitzachon.PhoneSystem.Application.Services.Payment;
 using Azure.Storage.Blobs;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
-using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
 using KolHaNitzachon.PhoneSystem.Application.Models;
-using KolHaNitzachon.PhoneSystem.Domain.Entities;
+using KolHaNitzachon.PhoneSystem.Shared.Constants;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
 using Twilio.TwiML;
-using KolHaNitzachon.PhoneSystem.Shared.Constants;
 
 namespace KolHaNitzachon.PhoneSystem.API.Controllers
 {
@@ -23,22 +23,28 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         private readonly IIvrCallSessionStore _sessionStore;
 
         private readonly IConfiguration _configuration;
+        //private readonly IPaymentGatewayService _paymentGatewayService;
+        private readonly PaymentService _paymentService;
 
         public IVRFlowController(
             IMenuRenderer menuRenderer,
             IIvrCallSessionStore sessionStore,
             ILogger<IVRFlowController> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            //IPaymentGatewayService paymentGatewayService
+            PaymentService paymentService)
         {
             _menuRenderer = menuRenderer;
             _sessionStore = sessionStore;
+            //_paymentGatewayService = paymentGatewayService;
+            _paymentService = paymentService;
             _logger = logger;
-            _configuration = configuration; 
+            _configuration = configuration;
         }
 
         [HttpPost("handle-call")]
         [Consumes("application/x-www-form-urlencoded", "multipart/form-data")]
-        public IActionResult HandleCall(
+        public async Task<IActionResult> HandleCall(
             [FromQuery] string? step,
             [FromForm(Name = "CallSid")] string? callSid,
             [FromForm(Name = "From")] string? from,
@@ -125,6 +131,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         digits,
                         applicationBaseUrl),
 
+                    IvrSteps.PaymentZip => await HandlePaymentZipAsync(
+                        session,
+                        digits,
+                        applicationBaseUrl),
+
                     IvrSteps.EndCall => EndCall(
                         session,
                         recordingBaseUrl),
@@ -135,58 +146,6 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                                 applicationBaseUrl,
                                 IvrSteps.Main)))
                 };
-
-                //return step switch
-                //{
-                //    "main" => HandleMainMenu(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl,
-                //        recordingBaseUrl),
-
-                //    "sponsor-all" => HandleSponsorAll(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl,
-                //        recordingBaseUrl),
-
-                //    "donation-amount" => HandleDonationAmount(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl,
-                //        recordingBaseUrl),
-
-                //    "confirm-donation" => HandleDonationConfirmation(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl,
-                //        recordingBaseUrl),
-
-                //    "payment-card-number" => HandlePaymentCardNumber(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl),
-
-                //    "payment-expiry" => HandlePaymentExpiry(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl),
-
-                //    "payment-cvv" => HandlePaymentCvv(
-                //        session,
-                //        digits,
-                //        applicationBaseUrl),
-
-                //    "end-call" => EndCall(
-                //        session,
-                //        recordingBaseUrl),
-
-                //    _ => Xml(
-                //        _menuRenderer.RenderInvalidOption(
-                //            BuildActionUrl(
-                //                applicationBaseUrl,
-                //                "main")))
-                //};
             }
             catch (Exception exception)
             {
@@ -216,9 +175,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 return NotFound();
             }
 
-            if (!_sessionStore.TryGet(
-                    callSid,
-                    out var session))
+            if (!_sessionStore.TryGet(callSid, out var session))
             {
                 return NotFound(
                     new
@@ -232,8 +189,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 {
                     session!.CallSid,
                     session.CallerPhoneNumber,
-                    DonationType =
-                        session.DonationType?.ToString(),
+                    DonationType = session.DonationType?.ToString(),
                     session.DonationAmount,
                     session.RecipientId,
                     session.RecipientCode,
@@ -241,6 +197,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     MaskedCardNumber = MaskCardNumber(session.CardNumber),
                     HasExpiryDate = !string.IsNullOrWhiteSpace(session.ExpiryMMYY),
                     HasCvv = !string.IsNullOrWhiteSpace(session.Cvv),
+                    HasBillingZip = !string.IsNullOrWhiteSpace(session.BillingZip),
                     session.CreatedAtUtc,
                     session.LastUpdatedAtUtc,
                     session.ExpiresAtUtc
@@ -340,6 +297,12 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         {
             return cvv.Length is 3 or 4 &&
                    cvv.All(char.IsDigit);
+        }
+
+        private static bool IsValidBillingZip(string billingZip)
+        {
+            return billingZip.Length == 5 &&
+                   billingZip.All(char.IsDigit);
         }
 
         private IActionResult HandlePaymentCardNumber(IvrCallSession session, string? digits, string applicationBaseUrl)
@@ -520,20 +483,324 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
 
             session.Cvv = cleanedCvv;
+            session.BillingZip = null;
             session.CurrentStep = IvrSteps.PaymentZip;
 
             _sessionStore.Update(session);
 
+            return Xml(
+                _menuRenderer.RenderEnterBillingZip(
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        IvrSteps.PaymentZip)));
+        }
+
+        private async Task<IActionResult> HandlePaymentZipAsync(IvrCallSession session, string? digits, string applicationBaseUrl)
+        {
+            var zipActionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                IvrSteps.PaymentZip);
+
             /*
-             * Temporary stopping point until billing ZIP
-             * collection is implemented.
+             * The caller must complete all previous payment
+             * stages before entering the billing ZIP.
              */
+            if (string.IsNullOrWhiteSpace(session.CardNumber))
+            {
+                session.BillingZip = null;
+                session.CurrentStep = IvrSteps.PaymentCardNumber;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCardNumber(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            IvrSteps.PaymentCardNumber)));
+            }
+
+            if (string.IsNullOrWhiteSpace(session.ExpiryMMYY))
+            {
+                session.BillingZip = null;
+                session.CurrentStep = IvrSteps.PaymentExpiry;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterExpiryDate(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            IvrSteps.PaymentExpiry)));
+            }
+
+            if (string.IsNullOrWhiteSpace(session.Cvv))
+            {
+                session.BillingZip = null;
+                session.CurrentStep = IvrSteps.PaymentCvv;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterCvv(
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            IvrSteps.PaymentCvv)));
+            }
+
+            if (string.IsNullOrWhiteSpace(digits))
+            {
+                session.CurrentStep = IvrSteps.PaymentZip;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderEnterBillingZip(
+                        zipActionUrl));
+            }
+
+            var cleanedBillingZip = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
+
+            if (!IsValidBillingZip(cleanedBillingZip))
+            {
+                session.BillingZip = null;
+                session.CurrentStep = IvrSteps.PaymentZip;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderInvalidBillingZip(
+                        zipActionUrl));
+            }
+
+            session.BillingZip = cleanedBillingZip;
+            session.CurrentStep = IvrSteps.PaymentProcess;
+
+            _sessionStore.Update(session);
+
+            return await ProcessPaymentAsync(session);
+        }
+
+        private async Task<IActionResult> ProcessPaymentAsync(IvrCallSession session)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(session.CardNumber) ||
+                    string.IsNullOrWhiteSpace(session.ExpiryMMYY) ||
+                    string.IsNullOrWhiteSpace(session.Cvv) ||
+                    string.IsNullOrWhiteSpace(session.BillingZip) ||
+                    !session.DonationAmount.HasValue ||
+                    session.DonationAmount.Value <= 0)
+                {
+                    _logger.LogWarning(
+                        "Payment processing stopped because required information " +
+                        "was missing. CallSid={CallSid}",
+                        session.CallSid);
+
+                    session.CurrentStep = IvrSteps.PaymentFailure;
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return RenderPaymentFailure(
+                        "We are sorry. The payment information is incomplete. " +
+                        "Your donation was not processed.");
+                }
+
+                var customerId =
+                    await _paymentService.GetOrCreateCustomerIdAsync(
+                        session.CallSid,
+                        session.CallerPhoneNumber,
+                        ct: HttpContext.RequestAborted);
+
+                if (string.IsNullOrWhiteSpace(customerId))
+                {
+                    session.CurrentStep = IvrSteps.PaymentFailure;
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return RenderPaymentFailure(
+                        "We are sorry. The payment could not be prepared. " +
+                        "Your donation was not processed.");
+                }
+
+                session.CustomerId = customerId;
+
+                var (
+                    paymentMethodId,
+                    paymentMethodError
+                ) =
+                    await _paymentService.TokenizeAndAttachPaymentMethodAsync(
+                        customerId,
+                        session.CardNumber,
+                        session.ExpiryMMYY,
+                        session.Cvv,
+                        session.BillingZip,
+                        HttpContext.RequestAborted);
+
+                if (string.IsNullOrWhiteSpace(paymentMethodId))
+                {
+                    _logger.LogWarning(
+                        "Card tokenization or payment-method attachment failed. " +
+                        "CallSid={CallSid}, Error={Error}",
+                        session.CallSid,
+                        paymentMethodError);
+
+                    session.CurrentStep = IvrSteps.PaymentFailure;
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return RenderPaymentFailure(
+                        "We are sorry. Your card could not be verified. " +
+                        "Your donation was not processed.");
+                }
+
+                session.PaymentMethodId = paymentMethodId;
+
+                var paymentIdempotencyKey =
+                    $"payment-{session.CallSid}";
+
+                var (
+                    success,
+                    paymentIntentId,
+                    paymentError
+                ) =
+                    await _paymentService.ProcessPaymentAsync(
+                        customerId,
+                        paymentMethodId,
+                        session.DonationAmount.Value,
+                        BuildPaymentDescription(session),
+                        paymentIdempotencyKey,
+                        HttpContext.RequestAborted);
+
+                if (!success)
+                {
+                    _logger.LogWarning(
+                        "Cardknox donation payment failed. " +
+                        "CallSid={CallSid}, Error={Error}",
+                        session.CallSid,
+                        paymentError);
+
+                    session.CurrentStep = IvrSteps.PaymentFailure;
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return RenderPaymentFailure(
+                        "We are sorry. Your payment was declined or " +
+                        "could not be processed. No donation was completed.");
+                }
+
+                session.PaymentIntentId = paymentIntentId;
+                session.CurrentStep = IvrSteps.PaymentSuccess;
+
+                ClearSensitivePaymentData(session);
+                _sessionStore.Update(session);
+
+                _logger.LogInformation(
+                    "IVR donation payment completed. " +
+                    "CallSid={CallSid}, PaymentIntentId={PaymentIntentId}, " +
+                    "Amount={Amount}",
+                    session.CallSid,
+                    session.PaymentIntentId,
+                    session.DonationAmount);
+
+                return RenderPaymentSuccess(
+                    session.DonationAmount.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Unexpected IVR payment-processing error. " +
+                    "CallSid={CallSid}",
+                    session.CallSid);
+
+                session.CurrentStep = IvrSteps.PaymentFailure;
+
+                ClearSensitivePaymentData(session);
+                _sessionStore.Update(session);
+
+                return RenderPaymentFailure(
+                    "We are sorry. An unexpected error occurred while " +
+                    "processing your donation. Please try again later.");
+            }
+        }
+
+        private static Metadata BuildPaymentMetadata(IvrCallSession session)
+        {
+            var values =
+                new Dictionary<string, string>
+                {
+                    ["CallSid"] =
+                        session.CallSid,
+
+                    ["DonationType"] =
+                        session.DonationType?.ToString() ?? string.Empty,
+
+                    ["RecipientId"] =
+                        session.RecipientId?.ToString() ?? string.Empty,
+
+                    ["RecipientCode"] =
+                        session.RecipientCode?.ToString(
+                            CultureInfo.InvariantCulture) ??
+                        string.Empty
+                };
+
+            return Metadata.From(values);
+        }
+
+        private static string BuildPaymentDescription(
+            IvrCallSession session)
+        {
+            if (session.RecipientCode.HasValue)
+            {
+                return
+                    $"IVR donation for recipient " +
+                    $"{session.RecipientCode.Value}";
+            }
+
+            return "IVR donation";
+        }
+
+        private static void ClearSensitivePaymentData(
+            IvrCallSession session)
+        {
+            session.CardNumber = null;
+            session.ExpiryMMYY = null;
+            session.Cvv = null;
+            session.BillingZip = null;
+        }
+
+        private IActionResult RenderPaymentSuccess(
+            decimal donationAmount)
+        {
             var response = new VoiceResponse();
 
-            response.Say(
-                "Your card security code was received. " +
-                "The billing postal code step will be added next.");
+            var amount =
+                donationAmount.ToString(
+                    "0.00",
+                    CultureInfo.InvariantCulture);
 
+            response.Say(
+                $"Thank you. Your donation of {amount} dollars " +
+                "was processed successfully.");
+
+            response.Say(
+                "Your generosity is greatly appreciated. Goodbye.");
+
+            response.Hangup();
+
+            return Xml(response);
+        }
+
+        private IActionResult RenderPaymentFailure(
+            string message)
+        {
+            var response = new VoiceResponse();
+
+            response.Say(message);
+            response.Say("Please try again later. Goodbye.");
             response.Hangup();
 
             return Xml(response);

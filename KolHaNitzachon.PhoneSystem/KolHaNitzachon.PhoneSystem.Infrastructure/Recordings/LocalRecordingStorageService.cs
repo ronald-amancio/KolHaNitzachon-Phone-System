@@ -109,7 +109,7 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Recordings
             }
         }
 
-        public Task DeleteAsync(string fileName)
+        public Task DeleteAsync(string fileName, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(fileName))
             {
@@ -146,6 +146,30 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Recordings
             }
 
             return Task.CompletedTask;
+        }
+
+        public string GetPlaybackUrl(string fileName, string applicationBaseUrl)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                throw new ArgumentException(
+                    "File name is required.",
+                    nameof(fileName));
+            }
+
+            if (string.IsNullOrWhiteSpace(applicationBaseUrl))
+            {
+                throw new ArgumentException(
+                    "Application base URL is required.",
+                    nameof(applicationBaseUrl));
+            }
+
+            var safeFileName =
+                Path.GetFileName(fileName);
+
+            return
+                $"{applicationBaseUrl.TrimEnd('/')}/recordings/" +
+                $"{Uri.EscapeDataString(safeFileName)}";
         }
 
         private void ValidateRequest(RecordingUploadRequest request)

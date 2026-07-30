@@ -27,5 +27,7 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR
         VoiceResponse RenderInvalidExpiryDate(string actionUrl);
         VoiceResponse RenderEnterCvv(string actionUrl);
         VoiceResponse RenderInvalidCvv(string actionUrl);
+        VoiceResponse RenderEnterBillingZip(string actionUrl);
+        VoiceResponse RenderInvalidBillingZip(string actionUrl);
     }
 }

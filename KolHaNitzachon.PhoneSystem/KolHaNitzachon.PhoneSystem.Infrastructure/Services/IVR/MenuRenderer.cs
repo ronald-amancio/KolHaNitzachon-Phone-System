@@ -1,6 +1,5 @@
-using KolHaNitzachon.PhoneSystem.Application.Interfaces.External;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
-using KolHaNitzachon.PhoneSystem.Domain.Entities;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
 using System.Globalization;
 using Twilio.TwiML;
 using Twilio.TwiML.Voice;
@@ -10,10 +9,12 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
     public sealed class MenuRenderer : IMenuRenderer
     {
         private readonly INumberAudioComposer _numberAudioComposer;
+        private readonly IAudioPromptUrlProvider _audioPromptUrlProvider;
 
-        public MenuRenderer(INumberAudioComposer numberAudioComposer)
+        public MenuRenderer(INumberAudioComposer numberAudioComposer, IAudioPromptUrlProvider audioPromptUrlProvider)
         {
             _numberAudioComposer = numberAudioComposer;
+            _audioPromptUrlProvider = audioPromptUrlProvider;
         }
 
         public VoiceResponse RenderMainMenu(string actionUrl, string recordingBaseUrl)
@@ -218,6 +219,63 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
+        public VoiceResponse RenderEnterBillingZip(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            var gather = new Gather(
+                action: new Uri(actionUrl),
+                method: Twilio.Http.HttpMethod.Post,
+                input: new List<Gather.InputEnum>
+                {
+            Gather.InputEnum.Dtmf
+                },
+                numDigits: 5,
+                timeout: 10,
+                finishOnKey: "#");
+
+            gather.Say(
+                "Please enter the five digit billing ZIP code associated with your card.");
+
+            response.Append(gather);
+
+            response.Redirect(
+                new Uri(actionUrl),
+                method: Twilio.Http.HttpMethod.Post);
+
+            return response;
+        }
+
+        public VoiceResponse RenderInvalidBillingZip(string actionUrl)
+        {
+            var response = new VoiceResponse();
+
+            response.Say(
+                "The billing ZIP code you entered is invalid.");
+
+            var gather = new Gather(
+                action: new Uri(actionUrl),
+                method: Twilio.Http.HttpMethod.Post,
+                input: new List<Gather.InputEnum>
+                {
+            Gather.InputEnum.Dtmf
+                },
+                numDigits: 5,
+                timeout: 10,
+                finishOnKey: "#");
+
+            gather.Say(
+                "Please enter the five digit billing ZIP code associated with your card.");
+
+            response.Append(gather);
+
+            response.Redirect(
+                new Uri(actionUrl),
+                method: Twilio.Http.HttpMethod.Post);
+
+            return response;
+        }
+
         public VoiceResponse RenderInvalidCvv(string actionUrl)
         {
             var response = new VoiceResponse();
@@ -306,25 +364,58 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
-        private static Uri BuildRecordingUri(string recordingBaseUrl, string relativePath)
+        #region buildRecordingUriBak
+        //private static Uri BuildRecordingUri(string recordingBaseUrl, string relativePath)
+        //{
+        //    var normalizedBaseUrl = recordingBaseUrl.TrimEnd('/');
+
+        //    var normalizedPath = relativePath
+        //        .Replace("\\", "/")
+        //        .TrimStart('/');
+
+        //    var encodedSegments = normalizedPath
+        //        .Split(
+        //            '/',
+        //            StringSplitOptions.RemoveEmptyEntries)
+        //        .Select(Uri.EscapeDataString);
+
+        //    var encodedPath = string.Join("/", encodedSegments);
+
+        //    return new Uri(
+        //        $"{normalizedBaseUrl}/{encodedPath}",
+        //        UriKind.Absolute);
+        //}
+        #endregion
+
+        private Uri BuildRecordingUri(string recordingBaseUrl, string relativePath)
         {
-            var normalizedBaseUrl = recordingBaseUrl.TrimEnd('/');
+            var applicationBaseUrl = RemoveAudioSuffix(recordingBaseUrl);
 
-            var normalizedPath = relativePath
-                .Replace("\\", "/")
-                .TrimStart('/');
-
-            var encodedSegments = normalizedPath
-                .Split(
-                    '/',
-                    StringSplitOptions.RemoveEmptyEntries)
-                .Select(Uri.EscapeDataString);
-
-            var encodedPath = string.Join("/", encodedSegments);
+            var promptUrl =
+                _audioPromptUrlProvider.GetPromptUrl(
+                    relativePath,
+                    applicationBaseUrl);
 
             return new Uri(
-                $"{normalizedBaseUrl}/{encodedPath}",
+                promptUrl,
                 UriKind.Absolute);
+        }
+
+        private static string RemoveAudioSuffix(string recordingBaseUrl)
+        {
+            var normalizedUrl = recordingBaseUrl.TrimEnd('/');
+
+            const string audioSuffix = "/audio";
+
+            if (normalizedUrl.EndsWith(
+                    audioSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return normalizedUrl[
+                    ..^audioSuffix.Length];
+            }
+
+            return normalizedUrl;
         }
 
         private static Uri CreateAbsoluteUri(string url)
