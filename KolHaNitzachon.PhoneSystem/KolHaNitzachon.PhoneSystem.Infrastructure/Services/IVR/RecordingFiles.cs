@@ -42,6 +42,17 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
                 "Option1-1/enter-donation-amount.mp3";
         }
 
+        public static class Recipient
+        {
+            public const string EnterCode = "Option2/enter-recipient-code.mp3";
+            public const string NotFound = "Option2/recipient-not-found.mp3";
+            public const string RecipientPrefix = "Option2/recipient.mp3";
+            public const string HasBeenCompetingFor = "Option2/has-been-competing-for.mp3";
+            public const string Days = "Option2/days.mp3";
+            public const string CodeNumberToSponsor = "Option2/code-number-to-sponsor.mp3";
+            public const string EnterPledgeAmount = "Option2/enter-pledge-amount.mp3";
+        }
+
         public static class Payment
         {
             public const string Successful = "charge-successful.mp3";

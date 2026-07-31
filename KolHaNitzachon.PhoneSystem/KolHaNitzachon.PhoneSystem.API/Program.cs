@@ -68,8 +68,8 @@ else
     builder.Services.AddScoped<IAudioPromptUrlProvider, LocalAudioPromptUrlProvider>();
 }
 
-
-builder.Services.AddSingleton<INumberAudioComposer, NumberAudioComposer>();
+builder.Services.AddScoped<INumberAudioComposer, NumberAudioComposer>();
+//builder.Services.AddSingleton<INumberAudioComposer, NumberAudioComposer>();
 builder.Services.AddSingleton<IIvrCallSessionStore, InMemoryIvrCallSessionStore>();
 builder.Services.AddHostedService<IvrSessionCleanupService>();
 builder.Services.AddScoped<IMenuRenderer, MenuRenderer>();
