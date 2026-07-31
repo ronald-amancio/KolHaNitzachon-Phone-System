@@ -1,5 +1,6 @@
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Recordings;
+using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using System.Globalization;
 using Twilio.TwiML;
 using Twilio.TwiML.Voice;
@@ -288,6 +289,84 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
                 CreateAbsoluteUri(actionUrl),
                 method: "POST");
 
+            return response;
+        }
+
+        public VoiceResponse RenderEnterRecipientCode(string actionUrl, string recordingBaseUrl)
+        {
+            var response = new VoiceResponse();
+            var gather = new Gather(
+                action: CreateAbsoluteUri(actionUrl),
+                method: "POST",
+                timeout: 12,
+                finishOnKey: "#");
+
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.EnterCode));
+            response.Append(gather);
+            response.Redirect(CreateAbsoluteUri(actionUrl), method: "POST");
+            return response;
+        }
+
+        public VoiceResponse RenderRecipientNotFound(string actionUrl, string recordingBaseUrl)
+        {
+            var response = new VoiceResponse();
+            response.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.NotFound));
+            response.Redirect(CreateAbsoluteUri(actionUrl), method: "POST");
+            return response;
+        }
+
+        public VoiceResponse RenderRecipientChain(Recipient recipient, string donationAmountActionUrl, string recordingBaseUrl)
+        {
+            ArgumentNullException.ThrowIfNull(recipient);
+
+            var response = new VoiceResponse();
+            var gather = new Gather(
+                action: CreateAbsoluteUri(donationAmountActionUrl),
+                method: "POST",
+                timeout: 12,
+                finishOnKey: "#");
+
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.RecipientPrefix));
+
+            if (!string.IsNullOrWhiteSpace(recipient.NameRecordingUrl))
+            {
+                var nameUri = Uri.TryCreate(recipient.NameRecordingUrl, UriKind.Absolute, out var absoluteNameUri)
+                    ? absoluteNameUri
+                    : BuildRecordingUri(recordingBaseUrl, recipient.NameRecordingUrl);
+                gather.Play(nameUri);
+            }
+            else
+            {
+                gather.Say(recipient.Name);
+            }
+
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.HasBeenCompetingFor));
+
+            var endDate = recipient.EndDate?.Date ?? DateTime.UtcNow.Date;
+            var days = Math.Clamp((endDate - recipient.StartDate.Date).Days + 1, 0, 1000);
+            foreach (var recording in _numberAudioComposer.Compose(days))
+            {
+                gather.Play(BuildRecordingUri(recordingBaseUrl, $"{RecordingFiles.Numbers.Folder}/{recording}"));
+            }
+
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.Days));
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.CodeNumberToSponsor));
+
+            if (recipient.Code is >= 0 and <= 1000)
+            {
+                foreach (var recording in _numberAudioComposer.Compose(recipient.Code))
+                {
+                    gather.Play(BuildRecordingUri(recordingBaseUrl, $"{RecordingFiles.Numbers.Folder}/{recording}"));
+                }
+            }
+            else
+            {
+                gather.Say(recipient.Code.ToString(CultureInfo.InvariantCulture));
+            }
+
+            gather.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.EnterPledgeAmount));
+            response.Append(gather);
+            response.Redirect(CreateAbsoluteUri(donationAmountActionUrl), method: "POST");
             return response;
         }
 

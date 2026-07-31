@@ -1,8 +1,9 @@
-using KolHaNitzachon.PhoneSystem.Application.Services.Payment;
 using Azure.Storage.Blobs;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Application.Models;
+using KolHaNitzachon.PhoneSystem.Application.Services.Payment;
 using KolHaNitzachon.PhoneSystem.Shared.Constants;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
@@ -25,6 +26,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         private readonly IConfiguration _configuration;
         //private readonly IPaymentGatewayService _paymentGatewayService;
         private readonly PaymentService _paymentService;
+        private readonly IRecipientRepository _recipientRepository;
 
         public IVRFlowController(
             IMenuRenderer menuRenderer,
@@ -32,7 +34,8 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             ILogger<IVRFlowController> logger,
             IConfiguration configuration,
             //IPaymentGatewayService paymentGatewayService
-            PaymentService paymentService)
+            PaymentService paymentService,
+            IRecipientRepository recipientRepository)
         {
             _menuRenderer = menuRenderer;
             _sessionStore = sessionStore;
@@ -40,6 +43,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             _paymentService = paymentService;
             _logger = logger;
             _configuration = configuration;
+            _recipientRepository = recipientRepository;
         }
 
         [HttpPost("handle-call")]
@@ -93,6 +97,12 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                 return step switch
                 {
                     IvrSteps.Main => HandleMainMenu(
+                        session,
+                        digits,
+                        applicationBaseUrl,
+                        recordingBaseUrl),
+
+                    IvrSteps.RecipientSelection => await HandleRecipientSelectionAsync(
                         session,
                         digits,
                         applicationBaseUrl,
@@ -988,10 +998,81 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     applicationBaseUrl,
                     recordingBaseUrl),
 
+                "2" => StartRecipientSelectionFlow(
+                    session,
+                    applicationBaseUrl,
+                    recordingBaseUrl),
+
                 _ => Xml(
                     _menuRenderer.RenderInvalidOption(
                         actionUrl))
             };
+        }
+
+        private IActionResult StartRecipientSelectionFlow(
+            IvrCallSession session,
+            string applicationBaseUrl,
+            string recordingBaseUrl)
+        {
+            session.CurrentStep = IvrSteps.RecipientSelection;
+            session.DonationType = DonationType.SponsorSpecificRecipient;
+            session.RecipientId = null;
+            session.RecipientCode = null;
+            session.DonationAmount = null;
+            ClearSensitivePaymentData(session);
+            _sessionStore.Update(session);
+
+            return Xml(_menuRenderer.RenderEnterRecipientCode(
+                BuildActionUrl(applicationBaseUrl, IvrSteps.RecipientSelection),
+                recordingBaseUrl));
+        }
+
+        private async Task<IActionResult> HandleRecipientSelectionAsync(
+            IvrCallSession session,
+            string? digits,
+            string applicationBaseUrl,
+            string recordingBaseUrl)
+        {
+            var actionUrl = BuildActionUrl(applicationBaseUrl, IvrSteps.RecipientSelection);
+
+            if (string.IsNullOrWhiteSpace(digits))
+            {
+                session.CurrentStep = IvrSteps.RecipientSelection;
+                _sessionStore.Update(session);
+                return Xml(_menuRenderer.RenderEnterRecipientCode(actionUrl, recordingBaseUrl));
+            }
+
+            var cleanedCode = new string(digits.Where(char.IsDigit).ToArray());
+            if (!int.TryParse(cleanedCode, NumberStyles.None, CultureInfo.InvariantCulture, out var recipientCode))
+            {
+                return Xml(_menuRenderer.RenderRecipientNotFound(actionUrl, recordingBaseUrl));
+            }
+
+            var recipient = await _recipientRepository.GetByCodeAsync(
+                recipientCode,
+                HttpContext.RequestAborted);
+
+            var today = DateTime.UtcNow.Date;
+            if (recipient is null || recipient.StartDate.Date > today ||
+                (recipient.EndDate.HasValue && recipient.EndDate.Value.Date < today))
+            {
+                _logger.LogInformation(
+                    "Recipient code was not found or is inactive. CallSid={CallSid}, RecipientCode={RecipientCode}",
+                    session.CallSid, recipientCode);
+                return Xml(_menuRenderer.RenderRecipientNotFound(actionUrl, recordingBaseUrl));
+            }
+
+            session.DonationType = DonationType.SponsorSpecificRecipient;
+            session.RecipientId = recipient.Id;
+            session.RecipientCode = recipient.Code;
+            session.DonationAmount = null;
+            session.CurrentStep = IvrSteps.DonationAmount;
+            _sessionStore.Update(session);
+
+            return Xml(_menuRenderer.RenderRecipientChain(
+                recipient,
+                BuildActionUrl(applicationBaseUrl, IvrSteps.DonationAmount),
+                recordingBaseUrl));
         }
 
         private IActionResult StartSponsorAllFlow(IvrCallSession session, string applicationBaseUrl, string recordingBaseUrl)

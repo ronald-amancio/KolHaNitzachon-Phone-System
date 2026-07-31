@@ -1,4 +1,4 @@
-﻿using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
+using KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +12,7 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
         private static readonly IReadOnlyDictionary<int, string> Units =
             new Dictionary<int, string>
             {
+                [0] = "zero.mp3",
                 [1] = "one.mp3",
                 [2] = "two.mp3",
                 [3] = "three.mp3",
@@ -48,11 +49,11 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
 
         public IReadOnlyList<string> Compose(int number)
         {
-            if (number is < 1 or > 1000)
+            if (number is < 0 or > 1000)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(number),
-                    "The prerecorded number range supports values from 1 to 1000.");
+                    "The prerecorded number range supports values from 0 to 1000.");
             }
 
             var recordings = new List<string>();
@@ -64,6 +65,12 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
 
         private static void AppendNumber(int number, ICollection<string> recordings)
         {
+            if (number == 0)
+            {
+                recordings.Add("zero.mp3");
+                return;
+            }
+
             if (number == 1000)
             {
                 recordings.Add("one.mp3");

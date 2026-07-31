@@ -29,5 +29,8 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR
         VoiceResponse RenderInvalidCvv(string actionUrl);
         VoiceResponse RenderEnterBillingZip(string actionUrl);
         VoiceResponse RenderInvalidBillingZip(string actionUrl);
+        VoiceResponse RenderEnterRecipientCode(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderRecipientNotFound(string actionUrl, string recordingBaseUrl);
+        VoiceResponse RenderRecipientChain(Recipient recipient, string donationAmountActionUrl, string recordingBaseUrl);
     }
 }
