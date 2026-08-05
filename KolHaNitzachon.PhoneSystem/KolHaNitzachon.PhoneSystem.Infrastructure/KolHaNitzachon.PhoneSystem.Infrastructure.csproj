@@ -38,11 +38,4 @@
     <ProjectReference Include="..\KolHaNitzachon.PhoneSystem.Domain\KolHaNitzachon.PhoneSystem.Domain.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Identity\" />
-    <Folder Include="Azure\" />
-    <Folder Include="Logging\" />
-    <Folder Include="Twilio\" />
-  </ItemGroup>
-
 </Project>

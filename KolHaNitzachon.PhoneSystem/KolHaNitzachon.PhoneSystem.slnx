@@ -6,4 +6,7 @@
     <Project Path="E:/Projects/Other/Twilio Phone System/v2/KolHaNitzachon.PhoneSystem/KolHaNitzachon.PhoneSystem.Infrastructure/KolHaNitzachon.PhoneSystem.Infrastructure.csproj" />
     <Project Path="KolHaNitzachon.PhoneSystem.Shared/KolHaNitzachon.PhoneSystem.Shared.csproj" Id="4050924c-26b7-4361-9358-77bfb914d190" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="KolHaNitzachon.PhoneSystem.Tests/KolHaNitzachon.PhoneSystem.Tests.csproj" Id="2d4a14be-aa55-4edc-b92a-3037a93faa2a" />
+  </Folder>
 </Solution>

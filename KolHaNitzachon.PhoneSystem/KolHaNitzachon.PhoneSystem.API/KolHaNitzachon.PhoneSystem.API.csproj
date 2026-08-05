@@ -21,10 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Middleware\" />
-    <Folder Include="Configurations\" />
     <Folder Include="Extensions\" />
-    <Folder Include="VoiceController\" />
     <Folder Include="wwwroot\admin\" />
     <Folder Include="wwwroot\recordings\" />
   </ItemGroup>

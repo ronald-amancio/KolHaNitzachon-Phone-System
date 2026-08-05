@@ -75,3 +75,5 @@ appsettings.Development.json
 
 # MP3's
 #*.mp3
+
+KolHaNitzachon.PhoneSystem.Tests/
