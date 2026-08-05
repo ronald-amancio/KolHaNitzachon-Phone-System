@@ -7,11 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Domain\" />
-    <Folder Include="Enumss\" />
-    <Folder Include="Constants\" />
-    <Folder Include="ValueObjects\" />
-    <Folder Include="Services\" />
+    <Compile Remove="Enumss\**" />
+    <Compile Remove="Services\**" />
+    <EmbeddedResource Remove="Enumss\**" />
+    <EmbeddedResource Remove="Services\**" />
+    <None Remove="Enumss\**" />
+    <None Remove="Services\**" />
   </ItemGroup>
 
 </Project>
