@@ -9,6 +9,8 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
 {
     public sealed class NumberAudioComposer : INumberAudioComposer
     {
+        private const decimal MaximumDonationAmount = 999_999m;
+
         private static readonly IReadOnlyDictionary<int, string> Units =
             new Dictionary<int, string>
             {
@@ -49,11 +51,12 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
 
         public IReadOnlyList<string> Compose(int number)
         {
-            if (number is < 0 or > 1000)
+            if (number is < 0 or > (int)MaximumDonationAmount)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(number),
-                    "The prerecorded number range supports values from 0 to 1000.");
+                    $"Recorded-number playback supports values from 0 " +
+                    $"to {MaximumDonationAmount:N0}.");
             }
 
             var recordings = new List<string>();
@@ -65,43 +68,69 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
 
         private static void AppendNumber(int number, ICollection<string> recordings)
         {
-            if (number == 0)
+            if (number < 100)
             {
-                recordings.Add("zero.mp3");
+                AppendBelowOneHundred(number, recordings);
                 return;
             }
 
-            if (number == 1000)
+            if (number < 1000)
             {
-                recordings.Add("one.mp3");
-                recordings.Add("thousand.mp3");
+                AppendBelowOneThousand(number, recordings);
                 return;
             }
 
-            if (number >= 100)
+            var thousands = number / 1000;
+            var remainder = number % 1000;
+
+            AppendNumber(thousands, recordings);
+            recordings.Add("thousand.mp3");
+
+            if (remainder <= 0)
             {
-                var hundreds = number / 100;
-                var remainder = number % 100;
-
-                recordings.Add(Units[hundreds]);
-                recordings.Add("hundred.mp3");
-
-                if (remainder > 0)
-                {
-                    recordings.Add("and.mp3");
-                    AppendBelowOneHundred(remainder, recordings);
-                }
-
                 return;
             }
 
-            AppendBelowOneHundred(number, recordings);
+            // Example: 1,005 → one thousand and five.
+            if (remainder < 100)
+            {
+                recordings.Add("and.mp3");
+            }
+
+            AppendBelowOneThousand(remainder, recordings);
+        }
+
+        private static void AppendBelowOneThousand(int number, ICollection<string> recordings)
+        {
+            if (number < 100)
+            {
+                AppendBelowOneHundred(number, recordings);
+                return;
+            }
+
+            var hundreds = number / 100;
+            var remainder = number % 100;
+
+            recordings.Add(Units[hundreds]);
+            recordings.Add("hundred.mp3");
+
+            if (remainder > 0)
+            {
+                recordings.Add("and.mp3");
+                AppendBelowOneHundred(remainder, recordings);
+            }
         }
 
         private static void AppendBelowOneHundred(int number, ICollection<string> recordings)
         {
-            if (number <= 0)
+            if (number == 0)
             {
+                // Only pronounce zero when the entire value is zero.
+                if (recordings.Count == 0)
+                {
+                    recordings.Add(Units[0]);
+                }
+
                 return;
             }
 
@@ -112,13 +141,13 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             }
 
             var tensValue = number / 10 * 10;
-            var unitValue = number % 10;
+            var unitsValue = number % 10;
 
             recordings.Add(Tens[tensValue]);
 
-            if (unitValue > 0)
+            if (unitsValue > 0)
             {
-                recordings.Add(Units[unitValue]);
+                recordings.Add(Units[unitsValue]);
             }
         }
     }

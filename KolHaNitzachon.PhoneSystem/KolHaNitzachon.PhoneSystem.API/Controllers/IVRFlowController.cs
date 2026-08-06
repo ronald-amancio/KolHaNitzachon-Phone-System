@@ -4,6 +4,7 @@ using KolHaNitzachon.PhoneSystem.Application.Interfaces.Payment;
 using KolHaNitzachon.PhoneSystem.Application.Interfaces.Repositories;
 using KolHaNitzachon.PhoneSystem.Application.Models;
 using KolHaNitzachon.PhoneSystem.Application.Services.Payment;
+using KolHaNitzachon.PhoneSystem.Domain.Entities;
 using KolHaNitzachon.PhoneSystem.Shared.Constants;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
@@ -17,7 +18,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
     public sealed class IVRFlowController : ControllerBase
     {
         private const decimal MinimumDonationAmount = 1m;
-        private const decimal MaximumTestDonationAmount = 1000m;
+        private const decimal MaximumDonationAmount = 999_999m;
 
         private readonly IMenuRenderer _menuRenderer;
         private readonly ILogger<IVRFlowController> _logger;
@@ -94,9 +95,18 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                     session.DonationType,
                     session.DonationAmount);
 
+                if (digits == "*")
+                {
+                    return HandleBackNavigation(
+                        session,
+                        step,
+                        applicationBaseUrl,
+                        recordingBaseUrl);
+                }
+
                 return step switch
                 {
-                    IvrSteps.Main => HandleMainMenu(
+                    IvrSteps.Main => await HandleMainMenuAsync(
                         session,
                         digits,
                         applicationBaseUrl,
@@ -231,6 +241,41 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             return step.StartsWith(
                 "payment-",
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private DateTime GetBusinessToday()
+        {
+            var timeZoneId =
+                _configuration["BusinessSettings:TimeZoneId"]
+                ?? "America/New_York";
+
+            try
+            {
+                var timeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+
+                return TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.UtcNow,
+                    timeZone).Date;
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                _logger.LogWarning(
+                    "Business timezone {TimeZoneId} was not found. " +
+                    "UTC date will be used.",
+                    timeZoneId);
+
+                return DateTime.UtcNow.Date;
+            }
+            catch (InvalidTimeZoneException)
+            {
+                _logger.LogWarning(
+                    "Business timezone {TimeZoneId} is invalid. " +
+                    "UTC date will be used.",
+                    timeZoneId);
+
+                return DateTime.UtcNow.Date;
+            }
         }
 
         private static string? MaskCardNumber(string? cardNumber)
@@ -888,6 +933,224 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
         }
 
+        private IActionResult HandleBackNavigation(
+    IvrCallSession session,
+    string currentStep,
+    string applicationBaseUrl,
+    string recordingBaseUrl)
+        {
+            _logger.LogInformation(
+                "Back navigation requested. " +
+                "CallSid={CallSid}, CurrentStep={CurrentStep}",
+                session.CallSid,
+                currentStep);
+
+            switch (currentStep)
+            {
+                /*
+                 * Main menu has no earlier menu.
+                 * Pressing star simply reloads it.
+                 */
+                case IvrSteps.Main:
+                    ResetSessionForMainMenu(session);
+
+                    return Xml(
+                        _menuRenderer.RenderMainMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.Main),
+                            recordingBaseUrl));
+
+                /*
+                 * Sponsor-all and recipient selection are both
+                 * directly under the main menu.
+                 */
+                case IvrSteps.SponsorAll:
+                case IvrSteps.RecipientSelection:
+                    ResetSessionForMainMenu(session);
+
+                    return Xml(
+                        _menuRenderer.RenderMainMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.Main),
+                            recordingBaseUrl));
+
+                /*
+                 * From donation amount:
+                 *
+                 * Specific recipient donation → recipient selection.
+                 * Donate-to-all flow → sponsor-all menu.
+                 */
+                case IvrSteps.DonationAmount:
+                    session.DonationAmount = null;
+
+                    if (session.DonationType ==
+                        DonationType.SponsorSpecificRecipient)
+                    {
+                        session.CurrentStep =
+                            IvrSteps.RecipientSelection;
+
+                        session.RecipientId = null;
+                        session.RecipientCode = null;
+
+                        ClearSensitivePaymentData(session);
+                        _sessionStore.Update(session);
+
+                        return Xml(
+                            _menuRenderer.RenderEnterRecipientCode(
+                                BuildActionUrl(
+                                    applicationBaseUrl,
+                                    IvrSteps.RecipientSelection),
+                                recordingBaseUrl));
+                    }
+
+                    session.CurrentStep = IvrSteps.SponsorAll;
+
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderSponsorAllMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.SponsorAll),
+                            recordingBaseUrl));
+
+                /*
+                 * From confirmation, return to amount entry.
+                 * Keep the selected donation type and recipient.
+                 */
+                case IvrSteps.ConfirmDonation:
+                    session.DonationAmount = null;
+                    session.CurrentStep = IvrSteps.DonationAmount;
+
+                    ClearSensitivePaymentData(session);
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderEnterDonationAmount(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.DonationAmount),
+                            recordingBaseUrl));
+
+                /*
+                 * From card number, return to donation confirmation.
+                 */
+                case IvrSteps.PaymentCardNumber:
+                    ClearSensitivePaymentData(session);
+                    session.CurrentStep = IvrSteps.ConfirmDonation;
+
+                    _sessionStore.Update(session);
+
+                    if (!session.DonationAmount.HasValue)
+                    {
+                        session.CurrentStep = IvrSteps.DonationAmount;
+                        _sessionStore.Update(session);
+
+                        return Xml(
+                            _menuRenderer.RenderEnterDonationAmount(
+                                BuildActionUrl(
+                                    applicationBaseUrl,
+                                    IvrSteps.DonationAmount),
+                                recordingBaseUrl));
+                    }
+
+                    return Xml(
+                        _menuRenderer.RenderDonationConfirmation(
+                            session.DonationAmount.Value,
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.ConfirmDonation),
+                            recordingBaseUrl));
+
+                /*
+                 * From expiry, return to card-number entry.
+                 */
+                case IvrSteps.PaymentExpiry:
+                    session.CardNumber = null;
+                    session.ExpiryMMYY = null;
+                    session.Cvv = null;
+                    session.BillingZip = null;
+
+                    session.CurrentStep =
+                        IvrSteps.PaymentCardNumber;
+
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderEnterCardNumber(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.PaymentCardNumber)));
+
+                /*
+                 * From CVV, return to expiry entry.
+                 */
+                case IvrSteps.PaymentCvv:
+                    session.ExpiryMMYY = null;
+                    session.Cvv = null;
+                    session.BillingZip = null;
+
+                    session.CurrentStep =
+                        IvrSteps.PaymentExpiry;
+
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderEnterExpiryDate(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.PaymentExpiry)));
+
+                /*
+                 * From ZIP, return to CVV entry.
+                 */
+                case IvrSteps.PaymentZip:
+                    session.Cvv = null;
+                    session.BillingZip = null;
+
+                    session.CurrentStep =
+                        IvrSteps.PaymentCvv;
+
+                    _sessionStore.Update(session);
+
+                    return Xml(
+                        _menuRenderer.RenderEnterCvv(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.PaymentCvv)));
+
+                /*
+                 * Payment processing should not normally accept
+                 * navigation because a gateway request may already
+                 * be running. Return to the main menu safely.
+                 */
+                case IvrSteps.PaymentProcess:
+                case IvrSteps.PaymentFailure:
+                case IvrSteps.PaymentSuccess:
+                    ResetSessionForMainMenu(session);
+
+                    return Xml(
+                        _menuRenderer.RenderMainMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.Main),
+                            recordingBaseUrl));
+
+                default:
+                    ResetSessionForMainMenu(session);
+
+                    return Xml(
+                        _menuRenderer.RenderMainMenu(
+                            BuildActionUrl(
+                                applicationBaseUrl,
+                                IvrSteps.Main),
+                            recordingBaseUrl));
+            }
+        }
+
         private void ResetSessionForMainMenu(IvrCallSession session)
         {
             session.CurrentStep = IvrSteps.Main;
@@ -973,7 +1236,11 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
         }
 
-        private IActionResult HandleMainMenu(IvrCallSession session, string? digits, string applicationBaseUrl, string recordingBaseUrl)
+        private async Task<IActionResult> HandleMainMenuAsync(
+            IvrCallSession session,
+            string? digits,
+            string applicationBaseUrl,
+            string recordingBaseUrl)
         {
             var actionUrl = BuildActionUrl(
                 applicationBaseUrl,
@@ -982,7 +1249,6 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             if (string.IsNullOrWhiteSpace(digits))
             {
                 session.CurrentStep = IvrSteps.Main;
-
                 _sessionStore.Update(session);
 
                 return Xml(
@@ -991,22 +1257,96 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
                         recordingBaseUrl));
             }
 
-            return digits switch
+            switch (digits)
             {
-                "1" => StartSponsorAllFlow(
-                    session,
-                    applicationBaseUrl,
-                    recordingBaseUrl),
+                case "1":
+                    return StartSponsorAllFlow(
+                        session,
+                        applicationBaseUrl,
+                        recordingBaseUrl);
 
-                "2" => StartRecipientSelectionFlow(
-                    session,
-                    applicationBaseUrl,
-                    recordingBaseUrl),
+                case "2":
+                    return StartRecipientSelectionFlow(
+                        session,
+                        applicationBaseUrl,
+                        recordingBaseUrl);
 
-                _ => Xml(
+                case "3":
+                    return await StartActiveContestantsFlowAsync(
+                        session,
+                        applicationBaseUrl,
+                        recordingBaseUrl);
+
+                default:
+                    return Xml(
+                        _menuRenderer.RenderInvalidOption(
+                            actionUrl));
+            }
+        }
+
+        private async Task<IActionResult> StartActiveContestantsFlowAsync(
+    IvrCallSession session,
+    string applicationBaseUrl,
+    string recordingBaseUrl)
+        {
+            IReadOnlyCollection<Recipient> recipients;
+
+            try
+            {
+                recipients = await _recipientRepository.GetAllAsync(
+                    HttpContext.RequestAborted);
+            }
+            catch (OperationCanceledException)
+                when (HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed to retrieve active contestants. CallSid={CallSid}",
+                    session.CallSid);
+
+                return Xml(
                     _menuRenderer.RenderInvalidOption(
-                        actionUrl))
-            };
+                        BuildActionUrl(
+                            applicationBaseUrl,
+                            IvrSteps.Main)));
+            }
+
+            var today = GetBusinessToday();
+
+            var activeRecipients = recipients
+                .Where(recipient =>
+                    recipient.StartDate.Date <= today &&
+                    (!recipient.EndDate.HasValue ||
+                     recipient.EndDate.Value.Date >= today))
+                .OrderBy(recipient => recipient.StartDate)
+                .ThenBy(recipient => recipient.Code)
+                .ToArray();
+
+            session.DonationType =
+                DonationType.SponsorSpecificRecipient;
+
+            session.RecipientId = null;
+            session.RecipientCode = null;
+            session.DonationAmount = null;
+            session.CurrentStep = IvrSteps.RecipientSelection;
+
+            ClearSensitivePaymentData(session);
+            _sessionStore.Update(session);
+
+            var recipientSelectionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                IvrSteps.RecipientSelection);
+
+            return Xml(
+                _menuRenderer.RenderActiveContestants(
+                    activeRecipients,
+                    today,
+                    recipientSelectionUrl,
+                    recordingBaseUrl));
         }
 
         private IActionResult StartRecipientSelectionFlow(
@@ -1028,51 +1368,138 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
         }
 
         private async Task<IActionResult> HandleRecipientSelectionAsync(
-            IvrCallSession session,
-            string? digits,
-            string applicationBaseUrl,
-            string recordingBaseUrl)
+                IvrCallSession session,
+                string? digits,
+                string applicationBaseUrl,
+                string recordingBaseUrl)
         {
-            var actionUrl = BuildActionUrl(applicationBaseUrl, IvrSteps.RecipientSelection);
+            var actionUrl = BuildActionUrl(
+                applicationBaseUrl,
+                IvrSteps.RecipientSelection);
 
             if (string.IsNullOrWhiteSpace(digits))
             {
                 session.CurrentStep = IvrSteps.RecipientSelection;
+
                 _sessionStore.Update(session);
-                return Xml(_menuRenderer.RenderEnterRecipientCode(actionUrl, recordingBaseUrl));
+
+                return Xml(
+                    _menuRenderer.RenderEnterRecipientCode(
+                        actionUrl,
+                        recordingBaseUrl));
             }
 
-            var cleanedCode = new string(digits.Where(char.IsDigit).ToArray());
-            if (!int.TryParse(cleanedCode, NumberStyles.None, CultureInfo.InvariantCulture, out var recipientCode))
-            {
-                return Xml(_menuRenderer.RenderRecipientNotFound(actionUrl, recordingBaseUrl));
-            }
+            var cleanedCode = new string(
+                digits
+                    .Where(char.IsDigit)
+                    .ToArray());
 
-            var recipient = await _recipientRepository.GetByCodeAsync(
-                recipientCode,
-                HttpContext.RequestAborted);
-
-            var today = DateTime.UtcNow.Date;
-            if (recipient is null || recipient.StartDate.Date > today ||
-                (recipient.EndDate.HasValue && recipient.EndDate.Value.Date < today))
+            if (string.IsNullOrWhiteSpace(cleanedCode) ||
+                !int.TryParse(
+                    cleanedCode,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var recipientCode) ||
+                recipientCode <= 0)
             {
                 _logger.LogInformation(
-                    "Recipient code was not found or is inactive. CallSid={CallSid}, RecipientCode={RecipientCode}",
-                    session.CallSid, recipientCode);
-                return Xml(_menuRenderer.RenderRecipientNotFound(actionUrl, recordingBaseUrl));
+                    "Invalid recipient code format. " +
+                    "CallSid={CallSid}",
+                    session.CallSid);
+
+                session.RecipientId = null;
+                session.RecipientCode = null;
+                session.CurrentStep = IvrSteps.RecipientSelection;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderRecipientNotFound(
+                        actionUrl,
+                        recordingBaseUrl));
             }
 
-            session.DonationType = DonationType.SponsorSpecificRecipient;
-            session.RecipientId = recipient.Id;
+            Recipient? recipient;
+
+            try
+            {
+                recipient =
+                    await _recipientRepository.GetByCodeAsync(
+                        recipientCode,
+                        HttpContext.RequestAborted);
+            }
+            catch (OperationCanceledException)
+                when (HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Failed to retrieve recipient. " +
+                    "CallSid={CallSid}, RecipientCode={RecipientCode}",
+                    session.CallSid,
+                    recipientCode);
+
+                session.RecipientId = null;
+                session.RecipientCode = null;
+                session.CurrentStep = IvrSteps.RecipientSelection;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderRecipientNotFound(
+                        actionUrl,
+                        recordingBaseUrl));
+            }
+
+            //var today = DateTime.UtcNow.Date;
+            var today = GetBusinessToday();
+
+            var recipientIsInactive =
+                recipient is null ||
+                recipient.StartDate.Date > today ||
+                recipient.EndDate.HasValue &&
+                recipient.EndDate.Value.Date < today;
+
+            if (recipientIsInactive)
+            {
+                _logger.LogInformation(
+                    "Recipient code was not found or is inactive. " +
+                    "CallSid={CallSid}, RecipientCode={RecipientCode}",
+                    session.CallSid,
+                    recipientCode);
+
+                session.RecipientId = null;
+                session.RecipientCode = null;
+                session.CurrentStep = IvrSteps.RecipientSelection;
+
+                _sessionStore.Update(session);
+
+                return Xml(
+                    _menuRenderer.RenderRecipientNotFound(
+                        actionUrl,
+                        recordingBaseUrl));
+            }
+
+            session.DonationType =
+                DonationType.SponsorSpecificRecipient;
+
+            session.RecipientId = recipient!.Id;
             session.RecipientCode = recipient.Code;
             session.DonationAmount = null;
             session.CurrentStep = IvrSteps.DonationAmount;
+
             _sessionStore.Update(session);
 
-            return Xml(_menuRenderer.RenderRecipientChain(
-                recipient,
-                BuildActionUrl(applicationBaseUrl, IvrSteps.DonationAmount),
-                recordingBaseUrl));
+            return Xml(
+                _menuRenderer.RenderRecipientChain(
+                    recipient,
+                    BuildActionUrl(
+                        applicationBaseUrl,
+                        IvrSteps.DonationAmount),
+                    recordingBaseUrl));
         }
 
         private IActionResult StartSponsorAllFlow(IvrCallSession session, string applicationBaseUrl, string recordingBaseUrl)
@@ -1200,7 +1627,7 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
 
             if (donationAmount < MinimumDonationAmount ||
-                donationAmount > MaximumTestDonationAmount)
+                donationAmount > MaximumDonationAmount)
             {
                 return Xml(
                     _menuRenderer.RenderInvalidDonationAmount(

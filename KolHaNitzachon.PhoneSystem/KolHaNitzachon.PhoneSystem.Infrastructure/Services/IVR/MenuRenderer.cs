@@ -307,11 +307,30 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             return response;
         }
 
+        #region RenderRecipientNotFound temporary implementation commented if the prompt was already in placed
+        //public VoiceResponse RenderRecipientNotFound(string actionUrl, string recordingBaseUrl)
+        //{
+        //    var response = new VoiceResponse();
+        //    response.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.NotFound));
+        //    response.Redirect(CreateAbsoluteUri(actionUrl), method: "POST");
+        //    return response;
+        //}
+        #endregion
+
         public VoiceResponse RenderRecipientNotFound(string actionUrl, string recordingBaseUrl)
         {
             var response = new VoiceResponse();
-            response.Play(BuildRecordingUri(recordingBaseUrl, RecordingFiles.Recipient.NotFound));
-            response.Redirect(CreateAbsoluteUri(actionUrl), method: "POST");
+
+            response.Say(
+                "The recipient code entered was not found " +
+                "or is not currently active. Please try again.");
+
+            response.Redirect(
+                new Uri(
+                    actionUrl,
+                    UriKind.Absolute),
+                method: "POST");
+
             return response;
         }
 
@@ -369,6 +388,137 @@ namespace KolHaNitzachon.PhoneSystem.Infrastructure.Services.IVR
             response.Redirect(CreateAbsoluteUri(donationAmountActionUrl), method: "POST");
             return response;
         }
+
+        public VoiceResponse RenderActiveContestants(
+    IReadOnlyCollection<Recipient> recipients,
+    DateTime businessToday,
+    string recipientSelectionActionUrl,
+    string recordingBaseUrl)
+        {
+            ArgumentNullException.ThrowIfNull(recipients);
+
+            var response = new VoiceResponse();
+
+            var gather = new Gather(
+                action: CreateAbsoluteUri(recipientSelectionActionUrl),
+                method: "POST",
+                timeout: 12,
+                finishOnKey: "#");
+
+            if (recipients.Count == 0)
+            {
+                gather.Say(
+                    "There are currently no active contestants. " +
+                    "Press star to return to the main menu.");
+            }
+            else
+            {
+                gather.Say(
+                    "The following is the full list of active contestants " +
+                    "currently competing in the championship.");
+
+                foreach (var recipient in recipients)
+                {
+                    gather.Say("Contestant");
+
+                    PlayRecipientName(
+                        gather,
+                        recipient,
+                        recordingBaseUrl);
+
+                    gather.Play(
+                        BuildRecordingUri(
+                            recordingBaseUrl,
+                            RecordingFiles.Recipient.HasBeenCompetingFor));
+
+                    var daysCompeting = Math.Max(
+                        1,
+                        (businessToday.Date -
+                         recipient.StartDate.Date).Days + 1);
+
+                    PlayNumber(
+                        gather,
+                        daysCompeting,
+                        recordingBaseUrl);
+
+                    gather.Play(
+                        BuildRecordingUri(
+                            recordingBaseUrl,
+                            RecordingFiles.Recipient.Days));
+
+                    gather.Play(
+                        BuildRecordingUri(
+                            recordingBaseUrl,
+                            RecordingFiles.Recipient.CodeNumberToSponsor));
+
+                    PlayNumber(
+                        gather,
+                        recipient.Code,
+                        recordingBaseUrl);
+                }
+
+                gather.Say(
+                    "To sponsor a contestant, please enter their code number " +
+                    "and press the pound key. " +
+                    "Press star to return to the main menu.");
+            }
+
+            response.Append(gather);
+
+            response.Redirect(
+                CreateAbsoluteUri(recipientSelectionActionUrl),
+                method: "POST");
+
+            return response;
+        }
+
+
+        #region Helpers
+        private void PlayRecipientName(Gather gather, Recipient recipient, string recordingBaseUrl)
+        {
+            if (!string.IsNullOrWhiteSpace(recipient.NameRecordingUrl))
+            {
+                var nameUri =
+                    Uri.TryCreate(
+                        recipient.NameRecordingUrl,
+                        UriKind.Absolute,
+                        out var absoluteNameUri)
+                        ? absoluteNameUri
+                        : BuildRecordingUri(
+                            recordingBaseUrl,
+                            recipient.NameRecordingUrl);
+
+                gather.Play(nameUri);
+                return;
+            }
+
+            gather.Say(recipient.Name);
+        }
+
+        private void PlayNumber(
+            Gather gather,
+            int number,
+            string recordingBaseUrl)
+        {
+            if (number is >= 0 and <= 999_999)
+            {
+                foreach (var recording in
+                         _numberAudioComposer.Compose(number))
+                {
+                    gather.Play(
+                        BuildRecordingUri(
+                            recordingBaseUrl,
+                            $"{RecordingFiles.Numbers.Folder}/{recording}"));
+                }
+
+                return;
+            }
+
+            gather.Say(
+                number.ToString(
+                    CultureInfo.InvariantCulture));
+        }
+        #endregion
 
         public VoiceResponse RenderSponsorAllMenu(string actionUrl, string recordingBaseUrl)
         {

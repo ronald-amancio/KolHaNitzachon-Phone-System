@@ -76,14 +76,39 @@ namespace KolHaNitzachon.PhoneSystem.API.Controllers
             }
         }
 
-        private string BuildAbsoluteUrl(string relativeUrl)
+        private string BuildAbsoluteUrl(string url)
         {
-            var normalizedUrl = relativeUrl.StartsWith('/')
-                ? relativeUrl
-                : $"/{relativeUrl}";
+            //var normalizedUrl = relativeUrl.StartsWith('/')
+            //    ? relativeUrl
+            //    : $"/{relativeUrl}";
 
-            return $"{Request.Scheme}://{Request.Host}" +
-                   $"{Request.PathBase}{normalizedUrl}";
+            //return $"{Request.Scheme}://{Request.Host}" +
+            //       $"{Request.PathBase}{normalizedUrl}";
+
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                throw new ArgumentException(
+                    "The recording URL is required.",
+                    nameof(url));
+            }
+
+            // Azure Blob Storage already returns an absolute URL.
+            if (Uri.TryCreate(
+                    url,
+                    UriKind.Absolute,
+                    out var absoluteUri))
+            {
+                return absoluteUri.ToString();
+            }
+
+            // Local storage returns a relative URL.
+            var normalizedUrl = url.StartsWith('/')
+                ? url
+                : $"/{url}";
+
+            return
+                $"{Request.Scheme}://{Request.Host}" +
+                $"{Request.PathBase}{normalizedUrl}";
         }
 
         private static ProblemDetails CreateProblemDetails(

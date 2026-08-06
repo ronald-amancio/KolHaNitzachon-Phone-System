@@ -32,5 +32,6 @@ namespace KolHaNitzachon.PhoneSystem.Application.Interfaces.IVR
         VoiceResponse RenderEnterRecipientCode(string actionUrl, string recordingBaseUrl);
         VoiceResponse RenderRecipientNotFound(string actionUrl, string recordingBaseUrl);
         VoiceResponse RenderRecipientChain(Recipient recipient, string donationAmountActionUrl, string recordingBaseUrl);
+        VoiceResponse RenderActiveContestants(IReadOnlyCollection<Recipient> recipients, DateTime businessToday, string recipientSelectionActionUrl, string recordingBaseUrl);
     }
 }
